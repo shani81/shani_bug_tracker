@@ -2,6 +2,7 @@ import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { getActiveOrg, getCurrentUser } from "@/lib/session";
+import { getAuthContext } from "@/lib/permissions";
 import { formatKey } from "@/lib/utils";
 import { typeValuesForGroup, type IssueGroup } from "@/lib/constants";
 import type {
@@ -108,13 +109,6 @@ export const getWorkspace = cache(async () => {
   return { org, projects, members };
 });
 
-export const getProjectStatuses = cache(async (projectId: string) => {
-  return prisma.workflowStatus.findMany({
-    where: { projectId },
-    orderBy: { order: "asc" },
-  });
-});
-
 // ── Issue listing ────────────────────────────────────────────────────────────
 
 export type IssueFilter = {
@@ -172,19 +166,32 @@ export async function listIssues(filter: IssueFilter = {}): Promise<IssueDTO[]> 
 }
 
 export async function getIssueById(id: string): Promise<IssueDTO | null> {
-  const issue = await prisma.issue.findUnique({ where: { id }, include: issueInclude });
+  const org = await getActiveOrg();
+  if (!org) return null;
+  // scoped by org so an id from another tenant resolves to null
+  const issue = await prisma.issue.findFirst({
+    where: { id, deletedAt: null, project: { orgId: org.id } },
+    include: issueInclude,
+  });
   return issue ? serializeIssue(issue) : null;
 }
 
 export async function getIssueByKey(key: string): Promise<IssueDTO | null> {
-  const issue = await prisma.issue.findFirst({ where: { key }, include: issueInclude });
+  const org = await getActiveOrg();
+  if (!org) return null;
+  const issue = await prisma.issue.findFirst({
+    where: { key, deletedAt: null, project: { orgId: org.id } },
+    include: issueInclude,
+  });
   return issue ? serializeIssue(issue) : null;
 }
 
 export async function getIssueDetail(id: string): Promise<IssueDetailDTO | null> {
+  const org = await getActiveOrg();
+  if (!org) return null;
   const [issue, current] = await Promise.all([
-    prisma.issue.findUnique({
-      where: { id },
+    prisma.issue.findFirst({
+      where: { id, deletedAt: null, project: { orgId: org.id } },
       include: {
         ...issueInclude,
         comments: { include: { author: true }, orderBy: { createdAt: "asc" } },
@@ -208,8 +215,15 @@ export async function getIssueDetail(id: string): Promise<IssueDetailDTO | null>
     title: string | null;
   }): UserDTO => ({ id: x.id, name: x.name, email: x.email, color: x.color, avatarUrl: x.avatarUrl, title: x.title });
 
+  // Private comments are internal staff notes. Guests (customer-facing
+  // accounts) must never receive them — filtering must happen here, not in the
+  // UI, or the bodies still ship in the RSC payload.
+  const authCtx = await getAuthContext();
+  const seesPrivate = authCtx ? authCtx.orgRole !== "guest" : false;
+
   const comments: CommentDTO[] = issue.comments
     .filter((c) => !c.deletedAt)
+    .filter((c) => !c.isPrivate || seesPrivate || c.authorId === current?.id)
     .map((c) => ({
       id: c.id,
       author: u(c.author),

@@ -1,23 +1,20 @@
+import "server-only";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
+import { getSessionUser } from "@/lib/auth";
+import { getAuthContext } from "@/lib/permissions";
 
-// Auth is stubbed for now: the "current user" is a fixed seeded account.
-// Swap this for a real session (NextAuth / Clerk / custom) later — every caller
-// already goes through getCurrentUser(), so the rest of the app won't change.
-export const CURRENT_USER_EMAIL = "you@shani.dev";
-
+/**
+ * The signed-in user, or null. Backed by a real session cookie —
+ * every data-access path scopes to whatever this returns.
+ */
 export const getCurrentUser = cache(async () => {
-  const user = await prisma.user.findUnique({ where: { email: CURRENT_USER_EMAIL } });
-  if (user) return user;
-  // fallback to any user so the app never hard-fails before seeding
-  return prisma.user.findFirst();
+  return getSessionUser();
 });
 
+/** The organization the signed-in user belongs to, or null. */
 export const getActiveOrg = cache(async () => {
-  const user = await getCurrentUser();
-  if (user?.orgId) {
-    const org = await prisma.organization.findUnique({ where: { id: user.orgId } });
-    if (org) return org;
-  }
-  return prisma.organization.findFirst();
+  const ctx = await getAuthContext();
+  if (!ctx) return null;
+  return prisma.organization.findUnique({ where: { id: ctx.orgId } });
 });

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { PanelLeft, Search, Plus, Bell } from "lucide-react";
 import { Button, Kbd } from "@/components/ui/primitives";
 import { ThemeMenu } from "@/components/shell/theme-menu";
-import { useWorkspace } from "@/components/workspace";
+import { useWorkspace, useCan } from "@/components/workspace";
 import { useQuickAdd } from "@/components/quick-add";
 import { useRealtime } from "@/components/realtime";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
   const ws = useWorkspace();
   const quickAdd = useQuickAdd();
   const { connected } = useRealtime();
+  const canCreate = useCan("issue:create");
 
   function openCommand() {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }));
@@ -68,10 +69,12 @@ export function Topbar({ onOpenSidebar }: { onOpenSidebar: () => void }) {
 
       <ThemeMenu />
 
-      <Button variant="primary" size="sm" className="ml-1" onClick={() => quickAdd.open("bug")}>
-        <Plus size={16} />
-        <span className="hidden sm:inline">Report</span>
-      </Button>
+      {canCreate && (
+        <Button variant="primary" size="sm" className="ml-1" onClick={() => quickAdd.open("bug")}>
+          <Plus size={16} />
+          <span className="hidden sm:inline">Report</span>
+        </Button>
+      )}
     </header>
   );
 }

@@ -18,29 +18,37 @@ export type RealtimeEvent = {
     | "ping";
   /** entity id the event concerns (issue id, etc.) */
   id?: string;
+  /** owning organization — subscribers only receive events from their own org */
+  orgId?: string;
   /** free-form payload for optimistic client updates */
   data?: unknown;
   at: number;
 };
 
 type Listener = (event: RealtimeEvent) => void;
+type Entry = { listener: Listener; orgId: string };
 
 const globalForBus = globalThis as unknown as {
-  __rtListeners?: Set<Listener>;
+  __rtEntries?: Set<Entry>;
 };
 
-const listeners: Set<Listener> = (globalForBus.__rtListeners ??= new Set());
+const entries: Set<Entry> = (globalForBus.__rtEntries ??= new Set());
 
-export function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+/** Subscribe on behalf of one organization. Events from other orgs are dropped. */
+export function subscribe(orgId: string, listener: Listener): () => void {
+  const entry: Entry = { listener, orgId };
+  entries.add(entry);
+  return () => entries.delete(entry);
 }
 
 export function emit(event: Omit<RealtimeEvent, "at">): void {
   const full: RealtimeEvent = { ...event, at: Date.now() };
-  for (const l of listeners) {
+  for (const e of entries) {
+    // an event without an orgId (e.g. ping) is broadcast; anything tenant-owned
+    // reaches only subscribers of that same tenant
+    if (full.orgId && full.orgId !== e.orgId) continue;
     try {
-      l(full);
+      e.listener(full);
     } catch {
       // a broken listener must not break the emitter
     }

@@ -76,6 +76,10 @@ export type WorkspaceData = {
   orgName: string;
   orgColor: string;
   currentUser: UserDTO | null;
+  /** organization role of the signed-in user: owner | admin | member | guest */
+  orgRole: string;
+  /** capabilities granted at org level — used to gate UI controls */
+  capabilities: string[];
   members: UserDTO[];
   projects: ProjectConfigDTO[];
   counts: Record<string, number>; // issues open, keyed by module group

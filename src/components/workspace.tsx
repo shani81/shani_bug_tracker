@@ -14,3 +14,13 @@ export function useWorkspace(): WorkspaceData {
   if (!ctx) throw new Error("useWorkspace must be used within WorkspaceProvider");
   return ctx;
 }
+
+/**
+ * Capability check for gating UI affordances. This is a convenience only —
+ * the server re-checks every mutation, so hiding a button is never the
+ * security boundary.
+ */
+export function useCan(capability: string): boolean {
+  const ws = useWorkspace();
+  return ws.capabilities.includes(capability);
+}

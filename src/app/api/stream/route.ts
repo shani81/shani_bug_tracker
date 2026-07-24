@@ -1,34 +1,48 @@
 import { subscribe, type RealtimeEvent } from "@/lib/realtime";
+import { getAuthContext } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 // Server-Sent Events endpoint. Clients (EventSource) connect here and receive
-// every realtime event emitted anywhere in the app — no polling, no refresh.
+// realtime events. Requires an authenticated session — the stream carries
+// issue ids/keys and must not be readable by anonymous clients.
 export async function GET(req: Request) {
+  const ctx = await getAuthContext();
+  if (!ctx) return new Response("Unauthorized", { status: 401 });
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false;
+
       const send = (event: RealtimeEvent) => {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch {
+          close();
+        }
       };
 
-      // initial hello so the client knows the channel is live
       send({ type: "ping", at: Date.now() });
 
-      const unsubscribe = subscribe(send);
+      // scoped to the caller's org — no cross-tenant event leakage
+      const unsubscribe = subscribe(ctx.orgId, send);
 
-      // heartbeat keeps proxies from closing the idle connection
       const heartbeat = setInterval(() => {
+        if (closed) return;
         try {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
         } catch {
-          clearInterval(heartbeat);
+          close();
         }
       }, 25000);
 
-      const close = () => {
+      function close() {
+        if (closed) return;
+        closed = true;
         clearInterval(heartbeat);
         unsubscribe();
         try {
@@ -36,7 +50,7 @@ export async function GET(req: Request) {
         } catch {
           /* already closed */
         }
-      };
+      }
 
       req.signal.addEventListener("abort", close);
     },

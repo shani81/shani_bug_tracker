@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { randomBytes, scrypt as _scrypt } from "node:crypto";
+import { promisify } from "node:util";
 import { PrismaClient } from "../src/generated/prisma/client";
 import type { WorkflowStatus, Label, Component, Release, User, TestCase } from "../src/generated/prisma/client";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
@@ -15,8 +17,29 @@ const randInt = (min: number, max: number) => Math.floor(Math.random() * (max - 
 const daysAgo = (d: number) => new Date(Date.now() - d * 86400_000);
 const key = (k: string, n: number) => `${k}-${String(n).padStart(6, "0")}`;
 
+// scrypt password hashing, mirroring src/lib/auth.ts (kept inline so the seed
+// has no dependency on server-only modules).
+const scrypt = promisify(_scrypt) as (
+  p: string | Buffer,
+  s: string | Buffer,
+  k: number,
+  o: { N: number; r: number; p: number; maxmem: number },
+) => Promise<Buffer>;
+
+// must stay in sync with the format written by src/lib/auth.ts
+const N = 1 << 16, R = 8, P = 1, MAXMEM = 256 * 1024 * 1024;
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  const hash = await scrypt(password.normalize("NFKC"), salt, 64, { N, r: R, p: P, maxmem: MAXMEM });
+  return `scrypt$${N}$${R}$${P}$${salt.toString("hex")}$${hash.toString("hex")}`;
+}
+
+/** Shared password for every seeded demo account. */
+const DEMO_PASSWORD = "demo1234";
+
 async function wipe() {
   // delete in FK-safe order
+  await prisma.session.deleteMany();
   await prisma.testResult.deleteMany();
   await prisma.testRun.deleteMany();
   await prisma.testCase.deleteMany();
@@ -120,22 +143,35 @@ async function main() {
     data: { name: "Acme Software", slug: "acme", logoColor: "#5b5bd6" },
   });
 
+  // orgRole drives global capabilities; projectRole refines them per project.
   const usersData = [
-    { name: "Shani Jee", email: "you@shani.dev", color: "#5b5bd6", title: "Founder / QA Lead" },
-    { name: "Maya Chen", email: "maya@acme.dev", color: "#e5484d", title: "Senior Engineer" },
-    { name: "Diego Torres", email: "diego@acme.dev", color: "#16a34a", title: "Backend Engineer" },
-    { name: "Aisha Khan", email: "aisha@acme.dev", color: "#d97706", title: "Product Designer" },
-    { name: "Tom Becker", email: "tom@acme.dev", color: "#0891b2", title: "Mobile Engineer" },
-    { name: "Priya Nair", email: "priya@acme.dev", color: "#8b5cf6", title: "QA Engineer" },
-    { name: "Leo Rossi", email: "leo@acme.dev", color: "#ec4899", title: "Engineering Manager" },
-    { name: "Sana Ali", email: "sana@acme.dev", color: "#0d9488", title: "Support Lead" },
+    { name: "Shani Jee", email: "you@shani.dev", color: "#5b5bd6", title: "Founder / QA Lead", orgRole: "owner", projectRole: "lead" },
+    { name: "Leo Rossi", email: "leo@acme.dev", color: "#ec4899", title: "Engineering Manager", orgRole: "admin", projectRole: "manager" },
+    { name: "Maya Chen", email: "maya@acme.dev", color: "#e5484d", title: "Senior Engineer", orgRole: "member", projectRole: "developer" },
+    { name: "Diego Torres", email: "diego@acme.dev", color: "#16a34a", title: "Backend Engineer", orgRole: "member", projectRole: "developer" },
+    { name: "Aisha Khan", email: "aisha@acme.dev", color: "#d97706", title: "Product Designer", orgRole: "member", projectRole: "designer" },
+    { name: "Tom Becker", email: "tom@acme.dev", color: "#0891b2", title: "Mobile Engineer", orgRole: "member", projectRole: "developer" },
+    { name: "Priya Nair", email: "priya@acme.dev", color: "#8b5cf6", title: "QA Engineer", orgRole: "member", projectRole: "qa" },
+    { name: "Sana Ali", email: "sana@acme.dev", color: "#0d9488", title: "Support Lead", orgRole: "guest", projectRole: "viewer" },
   ];
+
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
   const users: User[] = [];
+  const projectRoleByUser = new Map<string, string>();
+
   for (const u of usersData) {
-    const user = await prisma.user.create({ data: { ...u, orgId: org.id } });
-    await prisma.membership.create({
-      data: { orgId: org.id, userId: user.id, role: u.email === "you@shani.dev" ? "owner" : "member" },
+    const user = await prisma.user.create({
+      data: {
+        name: u.name,
+        email: u.email.toLowerCase(),
+        color: u.color,
+        title: u.title,
+        orgId: org.id,
+        passwordHash,
+      },
     });
+    await prisma.membership.create({ data: { orgId: org.id, userId: user.id, role: u.orgRole } });
+    projectRoleByUser.set(user.id, u.projectRole);
     users.push(user);
   }
   const me = users[0];
@@ -164,10 +200,10 @@ async function main() {
       data: { orgId: org.id, key: pd.key, name: pd.name, icon: pd.icon, color: pd.color },
     });
 
-    // members
+    // members — deterministic roles so RBAC behaves predictably in the demo
     for (const u of users) {
       await prisma.projectMember.create({
-        data: { projectId: project.id, userId: u.id, role: pick(["developer", "qa", "designer", "manager", "lead"]) },
+        data: { projectId: project.id, userId: u.id, role: projectRoleByUser.get(u.id) ?? "developer" },
       });
     }
 
@@ -417,6 +453,7 @@ async function main() {
   });
 
   console.log(`Done. ${users.length} users, ${projectDefs.length} projects, ${totalIssues} issues seeded.`);
+  console.log(`All demo accounts use the password: ${DEMO_PASSWORD}`);
   await prisma.$disconnect();
 }
 

@@ -7,7 +7,8 @@ import { NAV_ITEMS } from "@/lib/constants";
 import { NavIcon } from "@/components/icon";
 import { useWorkspace } from "@/components/workspace";
 import { cn } from "@/lib/utils";
-import { X } from "lucide-react";
+import { X, LogOut } from "lucide-react";
+import { signOutAction } from "@/lib/auth-actions";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -92,7 +93,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
-      {/* current user */}
+      {/* current user + sign out */}
       {ws.currentUser && (
         <div className="flex items-center gap-2.5 border-t border-border px-4 py-3">
           <span
@@ -103,8 +104,20 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12.5px] font-medium leading-tight">{ws.currentUser.name}</p>
-            <p className="truncate text-[11px] text-faint">{ws.currentUser.title}</p>
+            <p className="truncate text-[11px] text-faint">
+              {ws.currentUser.title} · <span className="capitalize">{ws.orgRole}</span>
+            </p>
           </div>
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              title="Sign out"
+              aria-label="Sign out"
+              className="grid h-7 w-7 place-items-center rounded-lg text-faint hover:bg-surface-2 hover:text-danger"
+            >
+              <LogOut size={15} />
+            </button>
+          </form>
         </div>
       )}
     </div>
