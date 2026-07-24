@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { getActiveOrg, getCurrentUser } from "@/lib/session";
+import { getAuthContext } from "@/lib/permissions";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Read-side data access for the secondary modules (releases, sprints, QA,
@@ -319,13 +320,28 @@ export type SettingsData = {
     components: { id: string; name: string }[];
     automations: { id: string; name: string; trigger: string; isEnabled: boolean; runCount: number }[];
   }[];
-  members: { id: string; name: string; email: string; color: string; title: string | null; role: string }[];
+  members: {
+    id: string;
+    name: string;
+    email: string;
+    color: string;
+    title: string | null;
+    role: string;
+    isActive: boolean;
+    isSelf: boolean;
+  }[];
+  invitations: { id: string; email: string; role: string; invitedBy: string; expiresAt: string }[];
+  /** org roles the viewer is allowed to grant — drives the role picker */
+  grantableRoles: string[];
+  viewerRole: string;
 };
 
 export const getSettings = cache(async (): Promise<SettingsData> => {
-  const org = await getActiveOrg();
-  if (!org) return { projects: [], members: [] };
-  const [projects, memberships] = await Promise.all([
+  const [org, ctx] = await Promise.all([getActiveOrg(), getAuthContext()]);
+  if (!org || !ctx) {
+    return { projects: [], members: [], invitations: [], grantableRoles: [], viewerRole: "" };
+  }
+  const [projects, memberships, invitations] = await Promise.all([
     prisma.project.findMany({
       where: { orgId: org.id },
       include: {
@@ -336,8 +352,29 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
       },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.membership.findMany({ where: { orgId: org.id }, include: { user: true } }),
+    prisma.membership.findMany({
+      where: { orgId: org.id },
+      // explicit select: never pull passwordHash into render scope
+      select: {
+        role: true,
+        isActive: true,
+        user: { select: { id: true, name: true, email: true, color: true, title: true } },
+      },
+    }),
+    prisma.invitation.findMany({
+      where: { orgId: org.id, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+      include: { invitedBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
+
+  // an admin may not grant or modify roles at or above their own
+  const grantable =
+    ctx.orgRole === "owner"
+      ? ["owner", "admin", "member", "guest"]
+      : ctx.orgRole === "admin"
+        ? ["member", "guest"]
+        : [];
 
   return {
     projects: projects.map((p) => ({
@@ -364,6 +401,17 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
       color: m.user.color,
       title: m.user.title,
       role: m.role,
+      isActive: m.isActive,
+      isSelf: m.user.id === ctx.userId,
     })),
+    invitations: invitations.map((i) => ({
+      id: i.id,
+      email: i.email,
+      role: i.role,
+      invitedBy: i.invitedBy.name,
+      expiresAt: i.expiresAt.toISOString(),
+    })),
+    grantableRoles: grantable,
+    viewerRole: ctx.orgRole,
   };
 });

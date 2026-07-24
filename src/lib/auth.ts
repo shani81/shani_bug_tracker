@@ -21,9 +21,14 @@ const SALT_BYTES = 16;
 // Cost parameters are stored *inside* each hash, so these can be raised later
 // without invalidating existing passwords — old hashes keep verifying with the
 // parameters they were created with.
-const SCRYPT_PARAMS = { N: 1 << 16, r: 8, p: 1 } as const;
-// 128 * N * r bytes, plus headroom; the default 32MB cap would reject N=2^16.
-const MAX_MEM = 256 * 1024 * 1024;
+//
+// N=2^15 costs 128*N*r = 32MB and ~70ms per hash. Login is unauthenticated and
+// always runs a hash (even for unknown emails, to avoid a timing oracle), so
+// memory per attempt is an availability concern, not just a CPU one: at 2^16
+// a few dozen concurrent requests would reserve gigabytes. 2^15 is 2x Node's
+// default work factor while keeping the footprint bounded.
+const SCRYPT_PARAMS = { N: 1 << 15, r: 8, p: 1 } as const;
+const MAX_MEM = 64 * 1024 * 1024;
 
 const isHex = (s: string) => s.length > 0 && s.length % 2 === 0 && /^[0-9a-f]+$/i.test(s);
 

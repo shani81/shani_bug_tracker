@@ -27,7 +27,7 @@ const scrypt = promisify(_scrypt) as (
 ) => Promise<Buffer>;
 
 // must stay in sync with the format written by src/lib/auth.ts
-const N = 1 << 16, R = 8, P = 1, MAXMEM = 256 * 1024 * 1024;
+const N = 1 << 15, R = 8, P = 1, MAXMEM = 64 * 1024 * 1024;
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
   const hash = await scrypt(password.normalize("NFKC"), salt, 64, { N, r: R, p: P, maxmem: MAXMEM });
@@ -39,6 +39,7 @@ const DEMO_PASSWORD = "demo1234";
 
 async function wipe() {
   // delete in FK-safe order
+  await prisma.invitation.deleteMany();
   await prisma.session.deleteMany();
   await prisma.testResult.deleteMany();
   await prisma.testRun.deleteMany();

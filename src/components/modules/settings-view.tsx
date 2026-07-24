@@ -17,25 +17,42 @@ import {
   Sparkles,
   Activity,
   ShieldCheck,
+  UserPlus,
+  MailPlus,
+  KeyRound,
+  Copy,
+  Check,
+  TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
-import { Avatar, Badge, Card, EmptyState, SectionTitle, Spinner } from "@/components/ui/primitives";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
+import { Avatar, Badge, Button, Card, EmptyState, Field, Input, SectionTitle, Select, Spinner } from "@/components/ui/primitives";
 import { StatTile } from "@/components/dashboard/charts";
 import { toggleAutomation } from "@/lib/actions";
+import {
+  inviteMember,
+  revokeInvitation,
+  changeMemberRole,
+  setMemberActive,
+  changeOwnPasswordAction,
+  type PasswordState,
+} from "@/lib/team-actions";
 import { categoryMeta } from "@/lib/constants";
-import { cn, colorFromString, withAlpha } from "@/lib/utils";
+import { cn, colorFromString, withAlpha, formatDate } from "@/lib/utils";
 import type { SettingsData } from "@/lib/module-queries";
 
 type Project = SettingsData["projects"][number];
 type Member = SettingsData["members"][number];
 type Automation = Project["automations"][number];
 
-type Tab = "projects" | "team" | "automation" | "appearance";
+type Tab = "projects" | "team" | "automation" | "account" | "appearance";
 
 const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
   { value: "projects", label: "Projects", icon: FolderKanban },
   { value: "team", label: "Team", icon: Users },
   { value: "automation", label: "Automation", icon: Zap },
+  { value: "account", label: "Account", icon: KeyRound },
   { value: "appearance", label: "Appearance", icon: Palette },
 ];
 
@@ -66,8 +83,9 @@ export function SettingsView({ data }: { data: SettingsData }) {
 
   const counts: Record<Tab, number | undefined> = {
     projects: data.projects.length,
-    team: data.members.length,
+    team: data.members.length + data.invitations.length,
     automation: automationCount,
+    account: undefined,
     appearance: undefined,
   };
 
@@ -127,7 +145,14 @@ export function SettingsView({ data }: { data: SettingsData }) {
       {/* panel */}
       <div className="min-w-0 flex-1">
         {tab === "projects" && <ProjectsTab projects={data.projects} />}
-        {tab === "team" && <TeamTab members={data.members} />}
+        {tab === "team" && (
+          <TeamTab
+            members={data.members}
+            invitations={data.invitations}
+            grantableRoles={data.grantableRoles}
+            viewerRole={data.viewerRole}
+          />
+        )}
         {tab === "automation" && (
           <AutomationTab
             projects={data.projects}
@@ -136,6 +161,7 @@ export function SettingsView({ data }: { data: SettingsData }) {
             pending={pending}
           />
         )}
+        {tab === "account" && <AccountTab />}
         {tab === "appearance" && <AppearanceTab />}
       </div>
     </div>
@@ -273,7 +299,25 @@ function Fallback({ children }: { children: React.ReactNode }) {
 
 // ── Team ─────────────────────────────────────────────────────────────────────
 
-function TeamTab({ members }: { members: Member[] }) {
+function TeamTab({
+  members,
+  invitations,
+  grantableRoles,
+  viewerRole,
+}: {
+  members: Member[];
+  invitations: SettingsData["invitations"];
+  grantableRoles: string[];
+  viewerRole: string;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = React.useTransition();
+  const [busyId, setBusyId] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = React.useState(false);
+
+  const canManage = grantableRoles.length > 0;
+
   const sorted = React.useMemo(
     () =>
       [...members].sort((a, b) => {
@@ -291,49 +335,360 @@ function TeamTab({ members }: { members: Member[] }) {
     return [...map.entries()].sort((a, b) => (ROLE_ORDER[a[0]] ?? 99) - (ROLE_ORDER[b[0]] ?? 99));
   }, [members]);
 
-  if (members.length === 0) {
-    return (
-      <EmptyState
-        icon={<Users size={34} />}
-        title="No members yet"
-        description="People invited to this workspace will show up here with their org role."
-      />
-    );
+  /** An admin may not modify an owner or another admin; only an owner can. */
+  function canEdit(m: Member): boolean {
+    if (!canManage) return false;
+    if (viewerRole === "owner") return true;
+    return m.role !== "owner" && m.role !== "admin";
+  }
+
+  function run(id: string, fn: () => Promise<unknown>) {
+    setBusyId(id);
+    setError(null);
+    startTransition(async () => {
+      try {
+        await fn();
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Something went wrong.");
+      } finally {
+        setBusyId(null);
+      }
+    });
   }
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-        <Users size={16} className="text-faint" />
-        <p className="text-[13.5px] font-semibold">Workspace members</p>
-        <span className="text-[12px] text-faint">{members.length}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {byRole.map(([role, count]) => (
-            <Badge key={role} color={roleColor(role)} dot>
-              {roleLabel(role)} {count}
-            </Badge>
-          ))}
-        </div>
+    <div className="flex flex-col gap-4">
+      {error && (
+        <p
+          role="alert"
+          className="flex items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger"
+        >
+          <TriangleAlert size={14} /> {error}
+        </p>
+      )}
+
+      {canManage && (
+        <InvitePanel
+          open={inviteOpen}
+          onOpenChange={setInviteOpen}
+          grantableRoles={grantableRoles}
+          onDone={() => router.refresh()}
+        />
+      )}
+
+      {/* pending invitations */}
+      {invitations.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+            <MailPlus size={16} className="text-faint" />
+            <p className="text-[13.5px] font-semibold">Pending invitations</p>
+            <span className="text-[12px] text-faint">{invitations.length}</span>
+          </div>
+          <div className="divide-y divide-border">
+            {invitations.map((inv) => (
+              <div key={inv.id} className="flex items-center gap-3 px-4 py-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-2 text-faint">
+                  <MailPlus size={14} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-medium">{inv.email}</p>
+                  <p className="truncate text-[11.5px] text-faint">
+                    Invited by {inv.invitedBy} · expires {formatDate(inv.expiresAt)}
+                  </p>
+                </div>
+                <Badge color={roleColor(inv.role)} dot className="shrink-0">
+                  {roleLabel(inv.role)}
+                </Badge>
+                {canManage && (
+                  <button
+                    onClick={() => run(inv.id, () => revokeInvitation(inv.id))}
+                    disabled={pending}
+                    className="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
+                  >
+                    {busyId === inv.id ? <Spinner className="h-3.5 w-3.5" /> : "Revoke"}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* members */}
+      {members.length === 0 ? (
+        <EmptyState
+          icon={<Users size={34} />}
+          title="No members yet"
+          description="People invited to this workspace will show up here with their org role."
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+            <Users size={16} className="text-faint" />
+            <p className="text-[13.5px] font-semibold">Workspace members</p>
+            <span className="text-[12px] text-faint">{members.length}</span>
+            <div className="ml-auto flex flex-wrap items-center gap-1.5">
+              {byRole.map(([role, count]) => (
+                <Badge key={role} color={roleColor(role)} dot>
+                  {roleLabel(role)} {count}
+                </Badge>
+              ))}
+              {canManage && (
+                <Button size="sm" variant="secondary" onClick={() => setInviteOpen(true)}>
+                  <UserPlus size={14} /> Invite
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="divide-y divide-border">
+            {sorted.map((m) => {
+              const editable = canEdit(m) && !m.isSelf;
+              const busy = busyId === m.id;
+              return (
+                <div
+                  key={m.id}
+                  className={cn(
+                    "flex flex-wrap items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2",
+                    !m.isActive && "opacity-55",
+                  )}
+                >
+                  <Avatar user={{ name: m.name, color: m.color, avatarUrl: null }} size={32} />
+                  <div className="min-w-0 flex-1 basis-40">
+                    <div className="flex min-w-0 items-baseline gap-2">
+                      <p className="truncate text-[13px] font-medium">{m.name}</p>
+                      {m.isSelf && <span className="shrink-0 text-[11px] text-faint">you</span>}
+                      {!m.isActive && (
+                        <span className="shrink-0 rounded bg-surface-3 px-1.5 text-[10.5px] font-medium text-muted">
+                          Deactivated
+                        </span>
+                      )}
+                      {m.title && (
+                        <span className="hidden truncate text-[11.5px] text-faint sm:inline">{m.title}</span>
+                      )}
+                    </div>
+                    <p className="truncate text-[12.5px] text-muted">{m.email}</p>
+                  </div>
+
+                  {busy && <Spinner className="h-3.5 w-3.5" />}
+
+                  {editable ? (
+                    <select
+                      value={m.role}
+                      disabled={pending}
+                      onChange={(e) => run(m.id, () => changeMemberRole(m.id, e.target.value))}
+                      className="h-8 shrink-0 rounded-lg border border-border bg-surface px-2 text-[12.5px] disabled:opacity-50"
+                      aria-label={`Role for ${m.name}`}
+                    >
+                      {/* the member's current role stays selectable even if not grantable */}
+                      {[...new Set([m.role, ...grantableRoles])].map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabel(r)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Badge color={roleColor(m.role)} dot className="shrink-0">
+                      {roleLabel(m.role)}
+                    </Badge>
+                  )}
+
+                  {editable && (
+                    <button
+                      onClick={() => run(m.id, () => setMemberActive(m.id, !m.isActive))}
+                      disabled={pending}
+                      title={m.isActive ? "Deactivate account" : "Reactivate account"}
+                      className={cn(
+                        "shrink-0 rounded-lg px-2 py-1 text-[12px] hover:bg-surface-3 disabled:opacity-50",
+                        m.isActive ? "text-muted hover:text-danger" : "text-success",
+                      )}
+                    >
+                      {m.isActive ? "Deactivate" : "Reactivate"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/** Invite form — produces a shareable link (no mail delivery in this build). */
+function InvitePanel({
+  open,
+  onOpenChange,
+  grantableRoles,
+  onDone,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  grantableRoles: string[];
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [link, setLink] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  async function submit(fd: FormData) {
+    setBusy(true);
+    setError(null);
+    setLink(null);
+    try {
+      const res = await inviteMember({
+        email: String(fd.get("email") ?? ""),
+        name: String(fd.get("name") ?? ""),
+        role: String(fd.get("role") ?? "member"),
+        title: String(fd.get("title") ?? ""),
+      });
+      if (res.ok) {
+        setLink(res.inviteUrl);
+        onDone();
+      } else {
+        setError(res.error);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create the invitation.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) return null;
+
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <UserPlus size={16} className="text-faint" />
+        <p className="text-[13.5px] font-semibold">Invite someone</p>
+        <button
+          onClick={() => {
+            onOpenChange(false);
+            setLink(null);
+            setError(null);
+          }}
+          className="ml-auto rounded-lg px-2 py-1 text-[12px] text-muted hover:bg-surface-2"
+        >
+          Close
+        </button>
       </div>
 
-      <div className="divide-y divide-border">
-        {sorted.map((m) => (
-          <div key={m.id} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-surface-2">
-            <Avatar user={{ name: m.name, color: m.color, avatarUrl: null }} size={32} />
-            <div className="min-w-0 flex-1">
-              <div className="flex min-w-0 items-baseline gap-2">
-                <p className="truncate text-[13px] font-medium">{m.name}</p>
-                {m.title && <span className="hidden truncate text-[11.5px] text-faint sm:inline">{m.title}</span>}
-              </div>
-              <p className="truncate text-[12.5px] text-muted">{m.email}</p>
-            </div>
-            <Badge color={roleColor(m.role)} dot className="shrink-0">
-              {roleLabel(m.role)}
-            </Badge>
+      <form action={submit} className="grid gap-3 sm:grid-cols-2">
+        <Field label="Email" required>
+          <Input name="email" type="email" required placeholder="alex@company.com" />
+        </Field>
+        <Field label="Name" required>
+          <Input name="name" required placeholder="Alex Rivera" />
+        </Field>
+        <Field label="Job title" hint="Optional">
+          <Input name="title" placeholder="Backend Engineer" />
+        </Field>
+        <Field label="Role">
+          <Select name="role" defaultValue={grantableRoles.includes("member") ? "member" : grantableRoles[0]}>
+            {grantableRoles.map((r) => (
+              <option key={r} value={r}>
+                {roleLabel(r)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div className="sm:col-span-2">
+          <Button type="submit" variant="primary" size="sm" disabled={busy}>
+            {busy ? "Creating…" : "Create invite link"}
+          </Button>
+        </div>
+      </form>
+
+      {error && (
+        <p role="alert" className="mt-3 flex items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger">
+          <TriangleAlert size={14} /> {error}
+        </p>
+      )}
+
+      {link && (
+        <div className="mt-3 rounded-lg border border-dashed border-border bg-surface-2/50 p-3">
+          <p className="mb-1.5 text-[12px] font-medium">
+            Invite ready — share this link. It expires in 7 days and can be used once.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-surface-3 px-2 py-1.5 font-mono text-[11.5px]">
+              {link}
+            </code>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(link);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1800);
+                } catch {
+                  /* clipboard blocked — the text is selectable above */
+                }
+              }}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </Card>
+  );
+}
+
+/** Self-service password change. */
+function AccountTab() {
+  const [state, formAction] = useActionState<PasswordState, FormData>(changeOwnPasswordAction, {});
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <KeyRound size={16} className="text-faint" />
+          <p className="text-[13.5px] font-semibold">Change password</p>
+        </div>
+        <p className="mb-3 text-[12.5px] text-muted">
+          Changing your password signs out every other device.
+        </p>
+        <form action={formAction} className="grid max-w-md gap-3">
+          <Field label="Current password" required>
+            <Input name="currentPassword" type="password" required autoComplete="current-password" />
+          </Field>
+          <Field label="New password" required hint="At least 8 characters">
+            <Input name="newPassword" type="password" required minLength={8} autoComplete="new-password" />
+          </Field>
+
+          {state.error && (
+            <p role="alert" className="flex items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger">
+              <TriangleAlert size={14} /> {state.error}
+            </p>
+          )}
+          {state.ok && (
+            <p className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-[12.5px] text-success">
+              <Check size={14} /> Password updated.
+            </p>
+          )}
+
+          <div>
+            <ChangePasswordButton />
+          </div>
+        </form>
+      </Card>
+    </div>
+  );
+}
+
+function ChangePasswordButton() {
+  const { pending } = useFormStatus();
+  return (
+    <Button type="submit" variant="primary" size="sm" disabled={pending}>
+      {pending ? "Updating…" : "Update password"}
+    </Button>
   );
 }
 

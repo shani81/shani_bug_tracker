@@ -7,11 +7,15 @@ const SESSION_COOKIE = "bt_session";
 // is not validated here (proxy can't reach the database). Real verification
 // happens server-side in the (app) layout, in every server action and in every
 // query, all of which resolve the session against the DB.
+/** Routes that must stay reachable while signed out. */
+const PUBLIC = ["/login", "/invite"];
+const isPublic = (p: string) => PUBLIC.some((r) => p === r || p.startsWith(r + "/"));
+
 export function proxy(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const hasCookie = Boolean(req.cookies.get(SESSION_COOKIE)?.value);
 
-  if (!hasCookie && pathname !== "/login") {
+  if (!hasCookie && !isPublic(pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
@@ -23,6 +27,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals, static assets and the auth endpoints themselves.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|api/).*)"],
+  // Skip Next internals, static assets and the public auth routes.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|invite|api/).*)"],
 };

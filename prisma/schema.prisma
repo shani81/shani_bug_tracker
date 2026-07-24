@@ -24,9 +24,10 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  Membership[]
-  projects Project[]
-  users    User[]
+  members     Membership[]
+  projects    Project[]
+  users       User[]
+  invitations Invitation[]
 }
 
 model User {
@@ -45,6 +46,8 @@ model User {
   org   Organization? @relation(fields: [orgId], references: [id])
 
   sessions Session[]
+
+  invitationsSent Invitation[] @relation("InvitationsSent")
 
   memberships    Membership[]
   projectMembers ProjectMember[]
@@ -78,11 +81,37 @@ model Session {
   @@index([expiresAt])
 }
 
+// Pending invitation to join an organization. Like Session, only the hash of
+// the token is stored — the raw token exists solely in the invite link.
+model Invitation {
+  id          String    @id @default(cuid())
+  orgId       String
+  email       String
+  role        String    @default("member") // org role granted on acceptance
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  invitedById String
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  invitedBy User         @relation("InvitationsSent", fields: [invitedById], references: [id])
+
+  @@index([orgId])
+  @@index([email])
+  @@index([expiresAt])
+}
+
 model Membership {
-  id     String @id @default(cuid())
-  role   String @default("member") // owner | admin | member | guest
-  orgId  String
-  userId String
+  id       String  @id @default(cuid())
+  role     String  @default("member") // owner | admin | member | guest
+  // Access to THIS org. Deactivating is per-membership, not per-account, so an
+  // admin of one org cannot lock a shared user out of another org.
+  // User.isActive remains for platform-wide suspension.
+  isActive Boolean @default(true)
+  orgId    String
+  userId   String
 
   org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   user User         @relation(fields: [userId], references: [id], onDelete: Cascade)

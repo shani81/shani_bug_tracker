@@ -22,6 +22,17 @@ const WINDOW_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 10;
 const MAX_KEYS = 10_000;
 
+/** Shared with other credential-checking endpoints (e.g. password change). */
+export async function checkCredentialThrottle(key: string): Promise<boolean> {
+  return isThrottled(key);
+}
+export async function recordCredentialFailure(key: string): Promise<void> {
+  recordFailure(key);
+}
+export async function clearCredentialThrottle(key: string): Promise<void> {
+  attempts.delete(key);
+}
+
 function isThrottled(key: string): boolean {
   const a = attempts.get(key);
   if (!a) return false;
@@ -63,11 +74,15 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
   const xff = (h.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   const ip = xff.length ? xff[xff.length - 1] : "local";
 
-  // Two buckets: per email+ip, and per email alone so IP rotation still
-  // cannot grant unlimited guesses against one account.
-  const ipKey = `${email}|${ip}`;
+  // Three buckets, so no single axis of rotation grants unlimited attempts:
+  //   email+ip  — the common case
+  //   email     — IP rotation cannot grind one account
+  //   ip        — email rotation cannot grind the user directory, and cannot
+  //               be used to force unbounded concurrent KDF work
+  const pairKey = `${email}|${ip}`;
   const emailKey = `email:${email}`;
-  if (isThrottled(ipKey) || isThrottled(emailKey)) {
+  const ipOnlyKey = `ip:${ip}`;
+  if (isThrottled(pairKey) || isThrottled(emailKey) || isThrottled(ipOnlyKey)) {
     return { error: "Too many attempts. Try again in a few minutes." };
   }
 
@@ -79,12 +94,13 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
   const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
 
   if (!user || !ok || !user.isActive) {
-    recordFailure(ipKey);
+    recordFailure(pairKey);
     recordFailure(emailKey);
+    recordFailure(ipOnlyKey);
     return { error: "Incorrect email or password." };
   }
 
-  attempts.delete(ipKey);
+  attempts.delete(pairKey);
   attempts.delete(emailKey);
   await createSession(user.id, { userAgent: h.get("user-agent") ?? "", ip });
   redirect("/");

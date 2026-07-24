@@ -103,8 +103,10 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   const user = await getSessionUser();
   if (!user) return null;
 
+  // isActive: an org can revoke someone's access without disabling the account
+  // platform-wide, so a deactivated membership yields no context at all.
   const membership = await prisma.membership.findFirst({
-    where: { userId: user.id, ...(user.orgId ? { orgId: user.orgId } : {}) },
+    where: { userId: user.id, isActive: true, ...(user.orgId ? { orgId: user.orgId } : {}) },
     orderBy: { createdAt: "asc" },
   });
   if (!membership) return null;
