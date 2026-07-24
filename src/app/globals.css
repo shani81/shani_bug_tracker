@@ -1,0 +1,215 @@
+@import "tailwindcss";
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Design tokens. Themes are switched by data-attributes on <html>:
+     data-theme="light" | "dark"        (color scheme)
+     data-density="cozy" | "compact"    (spacing / font size)
+     data-contrast="normal" | "high"    (WCAG high-contrast mode)
+   ─────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --surface-2: #f1f2f7;
+  --surface-3: #e8eaf1;
+  --border: #e5e7ef;
+  --border-strong: #d3d6e2;
+  --text: #14161f;
+  --muted: #5f6474;
+  --faint: #8b90a1;
+  --primary: #5b5bd6;
+  --primary-fg: #ffffff;
+  --primary-soft: #ecebfb;
+  --ring: #5b5bd6;
+  --danger: #e5484d;
+  --warning: #d97706;
+  --success: #16a34a;
+  --shadow-sm: 0 1px 2px rgba(20, 22, 40, 0.05);
+  --shadow-md: 0 1px 2px rgba(20, 22, 40, 0.04), 0 8px 24px -14px rgba(20, 22, 40, 0.18);
+  --shadow-lg: 0 12px 32px -12px rgba(20, 22, 40, 0.22);
+
+  --step: 1; /* density multiplier */
+  --radius: 14px;
+}
+
+[data-theme="dark"] {
+  --bg: #0c0d13;
+  --surface: #14151d;
+  --surface-2: #1a1c26;
+  --surface-3: #21232f;
+  --border: #262835;
+  --border-strong: #353849;
+  --text: #eceefb;
+  --muted: #969ab0;
+  --faint: #6b7085;
+  --primary: #8b8bf5;
+  --primary-fg: #0c0d13;
+  --primary-soft: #1e1e42;
+  --ring: #8b8bf5;
+  --danger: #ff6369;
+  --warning: #f5a623;
+  --success: #46c47a;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -14px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 16px 40px -14px rgba(0, 0, 0, 0.75);
+}
+
+[data-density="compact"] {
+  --step: 0.82;
+  --radius: 11px;
+}
+
+[data-contrast="high"] {
+  --border: var(--border-strong);
+  --muted: var(--text);
+}
+[data-contrast="high"][data-theme="light"] {
+  --text: #000000;
+  --border-strong: #000000;
+}
+[data-contrast="high"][data-theme="dark"] {
+  --text: #ffffff;
+  --border-strong: #ffffff;
+}
+
+/* Map tokens to Tailwind utilities (bg-surface, text-muted, border-border, …). */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-primary-fg: var(--primary-fg);
+  --color-primary-soft: var(--primary-soft);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 10px);
+
+  --font-sans: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif);
+  --font-mono: var(--font-mono, ui-monospace, "SFMono-Regular", Menlo, monospace);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-size: calc(14px * var(--step));
+  line-height: 1.5;
+}
+
+/* Density-aware spacing helpers used by the shell */
+.pad {
+  padding: calc(16px * var(--step));
+}
+
+::selection {
+  background: color-mix(in srgb, var(--primary) 30%, transparent);
+}
+
+/* Focus ring — visible for keyboard users, respects high-contrast */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Custom scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  background-clip: content-box;
+}
+
+/* Reusable primitives */
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-md);
+  }
+  .input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: calc(9px * var(--step)) calc(12px * var(--step));
+    font-size: calc(13.5px * var(--step));
+    color: var(--text);
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  .input::placeholder {
+    color: var(--faint);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+  }
+}
+
+/* Motion */
+@media (prefers-reduced-motion: no-preference) {
+  .animate-in {
+    animation: fadeInUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface-3) 60%, transparent), transparent);
+  animation: shimmer 1.4s infinite;
+}

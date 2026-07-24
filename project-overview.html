@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bug Tracker — Project Overview</title>
+<style>
+  :root {
+    --bg: #f4f5f9;
+    --surface: #ffffff;
+    --surface-2: #eef0f6;
+    --border: #e2e4ec;
+    --text: #1a1d29;
+    --text-dim: #63687a;
+    --accent: #5b5bd6;
+    --accent-2: #7c6ff0;
+    --done: #1f9d55;
+    --done-bg: #e4f7ea;
+    --doing: #b7791f;
+    --doing-bg: #fdf3dc;
+    --todo: #9095a6;
+    --todo-bg: #eceef4;
+    --shadow: 0 1px 2px rgba(20,22,40,.04), 0 8px 24px -12px rgba(20,22,40,.12);
+    --radius: 16px;
+  }
+  :root[data-theme="dark"] {
+    --bg: #14151d;
+    --surface: #1b1c27;
+    --surface-2: #23242f;
+    --border: #2c2e3c;
+    --text: #eceefb;
+    --text-dim: #9498ab;
+    --accent: #8b8bf5;
+    --accent-2: #a396f5;
+    --done: #3ecf78;
+    --done-bg: #113321;
+    --doing: #e0ac47;
+    --doing-bg: #362a10;
+    --todo: #767c92;
+    --todo-bg: #262837;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14151d;
+      --surface: #1b1c27;
+      --surface-2: #23242f;
+      --border: #2c2e3c;
+      --text: #eceefb;
+      --text-dim: #9498ab;
+      --accent: #8b8bf5;
+      --accent-2: #a396f5;
+      --done: #3ecf78;
+      --done-bg: #113321;
+      --doing: #e0ac47;
+      --doing-bg: #362a10;
+      --todo: #767c92;
+      --todo-bg: #262837;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); }
+
+  header.top {
+    position: sticky; top: 0; z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    padding: 18px clamp(16px, 4vw, 40px) 16px;
+  }
+  .top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .title-block h1 { margin: 0 0 4px; font-size: clamp(20px, 3vw, 26px); letter-spacing: -0.01em; }
+  .title-block p { margin: 0; color: var(--text-dim); font-size: 13.5px; }
+  .theme-btn {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 999px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; box-shadow: var(--shadow);
+  }
+  .theme-btn:hover { border-color: var(--accent); }
+
+  .overview {
+    margin-top: 18px; display: flex; gap: 28px; align-items: center; flex-wrap: wrap;
+  }
+  .ring-wrap { display: flex; align-items: center; gap: 16px; }
+  .ring { position: relative; width: 96px; height: 96px; flex: none; }
+  .ring svg { transform: rotate(-90deg); width: 100%; height: 100%; }
+  .ring-pct {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700;
+  }
+  .ring-label { font-size: 13px; color: var(--text-dim); }
+  .ring-label b { color: var(--text); font-size: 15px; display: block; }
+
+  .stat-chips { display: flex; gap: 10px; flex-wrap: wrap; }
+  .chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 8px 14px; box-shadow: var(--shadow); font-size: 13px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .dot.done { background: var(--done); }
+  .dot.doing { background: var(--doing); }
+  .dot.todo { background: var(--todo); }
+  .chip b { font-size: 14px; }
+
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-top: 16px;
+  }
+  .search-box {
+    flex: 1 1 220px; max-width: 340px; position: relative;
+  }
+  .search-box input {
+    width: 100%; padding: 9px 12px 9px 32px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-size: 13.5px;
+  }
+  .search-box input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .search-box::before {
+    content: "🔍"; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; opacity: .6;
+  }
+  .filter-chip {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+    border-radius: 999px; padding: 7px 13px; font-size: 12.5px; cursor: pointer;
+  }
+  .filter-chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .spacer { flex: 1; }
+  .ghost-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--text-dim);
+    border-radius: 10px; padding: 7px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .ghost-btn:hover { color: var(--text); border-color: var(--accent); }
+
+  main { padding: 24px clamp(16px, 4vw, 40px) 60px; }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;
+  }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); overflow: hidden; transition: opacity .15s;
+  }
+  .card.hidden { display: none; }
+  .card-head {
+    width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    background: transparent; border: none; cursor: pointer; text-align: left; color: inherit; font: inherit;
+  }
+  .card-icon { font-size: 20px; flex: none; width: 30px; text-align: center; }
+  .card-title { flex: 1; min-width: 0; }
+  .card-title .name { font-size: 14.5px; font-weight: 600; }
+  .card-title .bar-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+  .bar-track { flex: 1; height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .3s; }
+  .card-title .count { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; }
+  .chevron { flex: none; color: var(--text-dim); transition: transform .2s; font-size: 12px; }
+  .card.open .chevron { transform: rotate(90deg); }
+
+  .card-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
+  .card.open .card-body { max-height: 1000px; }
+  .item-list { list-style: none; margin: 0; padding: 2px 8px 10px; }
+  .item {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%;
+    padding: 8px 8px; border-radius: 8px; border: none; background: transparent; color: inherit;
+    font: inherit; text-align: left; cursor: pointer; font-size: 13px; line-height: 1.4;
+  }
+  .item:hover { background: var(--surface-2); }
+  .item.hidden { display: none; }
+  .status-dot {
+    flex: none; width: 18px; height: 18px; border-radius: 6px; margin-top: 1px;
+    display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+    border: 1.5px solid var(--todo); color: transparent;
+  }
+  .item[data-status="doing"] .status-dot { border-color: var(--doing); background: var(--doing-bg); color: var(--doing); }
+  .item[data-status="doing"] .status-dot::after { content: "•"; }
+  .item[data-status="done"] .status-dot { border-color: var(--done); background: var(--done-bg); color: var(--done); }
+  .item[data-status="done"] .status-dot::after { content: "✓"; }
+  .item[data-status="done"] .item-label { color: var(--text-dim); text-decoration: line-through; text-decoration-color: var(--border); }
+  .item-label { flex: 1; }
+
+  footer { padding: 10px clamp(16px, 4vw, 40px) 40px; color: var(--text-dim); font-size: 12px; max-width: 720px; }
+  footer p { margin: 4px 0; }
+  kbd {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+    padding: 1px 5px; font-size: 11px;
+  }
+
+  @media (max-width: 560px) {
+    .overview { gap: 16px; }
+    .ring { width: 76px; height: 76px; }
+    .ring-pct { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-row">
+    <div class="title-block">
+      <h1>Enterprise Bug Tracker — Project Overview</h1>
+      <p>Live build progress · repo: shani81/shani_bug_tracker · updated 2026-07-24 after the foundation + 12 core modules landed</p>
+    </div>
+    <button class="theme-btn" id="themeToggle" type="button">🌓 <span id="themeLabel">Theme</span></button>
+  </div>
+
+  <div class="overview">
+    <div class="ring-wrap">
+      <div class="ring">
+        <svg viewBox="0 0 96 96">
+          <circle cx="48" cy="48" r="42" fill="none" stroke="var(--surface-2)" stroke-width="10"/>
+          <circle id="ringProgress" cx="48" cy="48" r="42" fill="none" stroke="var(--accent)" stroke-width="10"
+                  stroke-linecap="round" stroke-dasharray="263.9" stroke-dashoffset="263.9"/>
+        </svg>
+        <div class="ring-pct" id="ringPct">0%</div>
+      </div>
+      <div class="ring-label">Overall completion<b id="ringSummary">0 / 0 features</b></div>
+    </div>
+    <div class="stat-chips">
+      <div class="chip"><span class="dot done"></span> Done <b id="statDone">0</b></div>
+      <div class="chip"><span class="dot doing"></span> In progress <b id="statDoing">0</b></div>
+      <div class="chip"><span class="dot todo"></span> Not started <b id="statTodo">0</b></div>
+      <div class="chip">📦 Modules <b id="statCats">0</b></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="search-box"><input id="search" type="text" placeholder="Search features…"></div>
+    <button class="filter-chip" data-filter="all" aria-pressed="true" type="button">All</button>
+    <button class="filter-chip" data-filter="todo" aria-pressed="false" type="button">Not started</button>
+    <button class="filter-chip" data-filter="doing" aria-pressed="false" type="button">In progress</button>
+    <button class="filter-chip" data-filter="done" aria-pressed="false" type="button">Done</button>
+    <div class="spacer"></div>
+    <button class="ghost-btn" id="expandAll" type="button">Expand all</button>
+    <button class="ghost-btn" id="collapseAll" type="button">Collapse all</button>
+    <button class="ghost-btn" id="resetAll" type="button">Reset progress</button>
+  </div>
+</header>
+
+<main>
+  <div class="grid" id="grid"></div>
+</main>
+
+<footer>
+  <p><strong>How to use this page:</strong> click any feature row to cycle its status — not started → in progress → done. Your clicks are saved automatically in this browser (<kbd>localStorage</kbd>), so reopening this file keeps your progress.</p>
+  <p>To make progress permanent across machines / commit it to git, ask Claude Code to update the <code>status</code> values inside <code>project-overview.html</code> directly as features get built — that edits the source of truth instead of just the browser cache.</p>
+  <p>This file has no external dependencies — open it directly by double-clicking, no server required.</p>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- theme ----
+  var root = document.documentElement;
+  var savedTheme = localStorage.getItem('bt-theme');
+  if (savedTheme) root.setAttribute('data-theme', savedTheme);
+  function currentTheme() {
+    if (root.getAttribute('data-theme')) return root.getAttribute('data-theme');
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    var next = currentTheme() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('bt-theme', next);
+  });
+
+  // ---- feature data: edit the strings below (or their default status) as the source of truth ----
+  var DATA = [
+    { id: 'design', icon: '🎨', title: 'General Design & Theming', items: [
+      'Rounded, modern enterprise UI with smooth animations',
+      'Fully responsive layout — desktop, tablet, mobile, portrait & landscape',
+      'Light mode, Dark mode, Compact mode, High Contrast mode',
+      'Global keyboard shortcuts',
+      'WCAG AA accessibility compliance',
+    ]},
+    { id: 'native', icon: '📱', title: 'Native Mobile Apps', items: [
+      'Android app (Kotlin, Material 3)',
+      'iOS app (SwiftUI)',
+      'Offline mode with automatic background sync',
+      'Push notifications & instant updates',
+      'Biometric login — Face ID, Fingerprint, PIN',
+      'Deep linking & share-to-app',
+      'Camera / video / QR scan / voice note capture',
+      'Home screen widgets',
+    ]},
+    { id: 'realtime', icon: '⚡', title: 'Real-Time Sync', items: [
+      'Live-sync infrastructure (WebSocket / push channel)',
+      'Instant updates: bug create/update, comments, status, priority, assignment',
+      'Instant updates: attachments, time logs, release changes',
+      'No-refresh live UI across every screen',
+    ]},
+    { id: 'modules', icon: '🧩', title: 'Core Modules (12)', items: [
+      'Dashboard', 'Bug Tracker', 'Feature Requests', 'Improvements', 'Tasks',
+      'QA Testing', 'Releases', 'Roadmap', 'Sprint Planning', 'Analytics',
+      'Notifications', 'Settings',
+    ]},
+    { id: 'report', icon: '🐞', title: 'Bug Report Form', items: [
+      'Configurable auto-numbering (BUG-000001) — enable/disable/show/hide',
+      'Full issue-type taxonomy (bug, error, crash, feature, security, perf, UX, …)',
+      'Core fields: title, URL, module/page/app, environment, browser/OS/device/version',
+      'Priority, severity & impact selectors',
+      'Description, expected/actual result, steps to reproduce (freeform + numbered)',
+      'Rich attachments: images, video, screen recording, audio, PDF, logs, crash reports, stack traces, JSON, ZIP',
+      'Drag & drop upload, clipboard paste, in-app screen recording',
+    ]},
+    { id: 'smart', icon: '🔍', title: 'Smart Auto-Detection', items: [
+      'Auto-capture browser, OS, device, screen size, language, timezone',
+      'Auto-capture app version, git commit, build number, user, tenant, session',
+      'Auto-capture console errors, network requests, API calls',
+      'Auto-capture performance, memory & CPU metrics',
+      'User-configurable auto-attach toggle',
+    ]},
+    { id: 'comments', icon: '💬', title: 'Comments & Collaboration', items: [
+      'Threaded comments with replies',
+      '@mentions, emoji, Markdown, code blocks',
+      'Media in comments — screenshots, video, voice notes',
+      'Edit / delete with history',
+      'Pinned comments',
+      'Private/internal notes vs customer-visible notes',
+    ]},
+    { id: 'workflow', icon: '🔁', title: 'Workflow & Status Builder', items: [
+      'Default status set (New → Open → … → Closed / Rejected / Duplicate)',
+      'Custom workflow builder with unlimited statuses',
+      'Per-project workflow configuration',
+    ]},
+    { id: 'assign', icon: '👥', title: 'Assignments & Watchers', items: [
+      'Assign developer / QA / designer / manager / support',
+      'Multiple assignees per item',
+      'Watchers, followers, subscribers',
+    ]},
+    { id: 'priority', icon: '🚦', title: 'Priority & Severity', items: [
+      'Configurable priority scale (Critical → Lowest)',
+      'Configurable severity scale (Blocker → Cosmetic)',
+      'Custom priority/severity levels',
+    ]},
+    { id: 'labels', icon: '🏷️', title: 'Labels, Tags & Taxonomy', items: [
+      'Unlimited labels with color coding',
+      'Categories, components, modules',
+      'Projects, versions, milestones',
+    ]},
+    { id: 'search', icon: '🔎', title: 'Search & Filters', items: [
+      'Instant global search',
+      'Advanced boolean search',
+      'Saved & recent searches',
+      'Full filter set — status, priority, severity, dates, module, env, release, labels, people',
+    ]},
+    { id: 'kanban', icon: '📋', title: 'Kanban Board', items: [
+      'Drag & drop across statuses/columns',
+      'Swimlanes & grouping',
+      'Multiple boards with per-board filters',
+    ]},
+    { id: 'listview', icon: '📊', title: 'List / Spreadsheet View', items: [
+      'Resizable & frozen columns',
+      'Grouping, sorting, filtering',
+      'Inline & bulk editing, mass update',
+    ]},
+    { id: 'timeline', icon: '🗓️', title: 'Timeline & Roadmap', items: [
+      'Visual roadmap with milestones & deadlines',
+      'Sprint timeline',
+      'Release timeline',
+    ]},
+    { id: 'release', icon: '🚀', title: 'Release Management', items: [
+      'Version management & release notes/changelog',
+      'Fixed bugs / known issues / regression list per release',
+      'Deployment status tracking',
+      'Rollback history',
+    ]},
+    { id: 'qa', icon: '✅', title: 'QA Module', items: [
+      'Test cases & test plans',
+      'Regression, smoke & acceptance test suites',
+      'Manual testing workflow',
+      'Automation results — pass / fail / blocked / retest',
+    ]},
+    { id: 'analytics', icon: '📈', title: 'Analytics & Reporting', items: [
+      'Open/closed bug counts, avg resolution & response time',
+      'Bugs per module, developer & QA performance',
+      'Trend charts, heat maps, velocity, burndown',
+      'Release quality, reopen rate, regression rate',
+    ]},
+    { id: 'notify', icon: '🔔', title: 'Notifications', items: [
+      'Real-time in-app + desktop notifications',
+      'Email, SMS, push notifications',
+      'Slack, Microsoft Teams, Discord, webhook delivery',
+      'Custom notification events',
+    ]},
+    { id: 'automation', icon: '🤖', title: 'Automation Engine', items: [
+      'Visual automation / rule builder',
+      'Conditional actions (if critical → notify manager, if crash → create incident, …)',
+      'Auto assignment, labels, priority, severity, status',
+      'Scheduled rules',
+    ]},
+    { id: 'ai', icon: '🧠', title: 'AI Features', items: [
+      'AI duplicate & similar-issue detection',
+      'AI root cause & suggested fix',
+      'AI code, log, screenshot & crash analysis',
+      'AI auto-summary, title generation, auto-tagging',
+      'AI severity / priority / sprint / release-risk prediction',
+      'AI-generated test cases, dev tasks & release notes',
+      'AI voice-to-text & translation',
+    ]},
+    { id: 'integrations', icon: '🔌', title: 'Integrations', items: [
+      'Source control — GitHub, GitLab, Bitbucket, Azure DevOps',
+      'CI/CD — Jenkins, GitHub Actions, Docker, Kubernetes',
+      'Monitoring — Sentry, Firebase Crashlytics, Google Analytics',
+      'Payments — Stripe',
+      'Chat — Slack, Teams, Discord',
+      'Email, Webhooks, REST & GraphQL',
+    ]},
+    { id: 'security', icon: '🔐', title: 'Security & Permissions', items: [
+      'Role-based & field-level permissions',
+      'Audit log & activity log',
+      'Encryption, GDPR compliance, backups',
+      'Version history, soft/hard delete & restore',
+      '2FA, SSO, OAuth',
+    ]},
+    { id: 'admin', icon: '⚙️', title: 'Admin Panel', items: [
+      'Manage projects, teams, users, roles & permissions',
+      'Manage statuses, priorities, templates, workflows, automation',
+      'Manage integrations, custom fields, notifications',
+      'Branding, themes, languages',
+    ]},
+    { id: 'ux', icon: '✨', title: 'UX Enhancements', items: [
+      'Swipe actions, keyboard shortcuts, quick add',
+      'Inline editing, drag & drop, multi-select, bulk actions',
+      'Autosave, undo/redo',
+      'Recently viewed, favorites, pinned items',
+    ]},
+    { id: 'api', icon: '🧬', title: 'API — REST & GraphQL', items: [
+      'Fully documented REST API',
+      'GraphQL API',
+      'Auth, pagination, filtering, sorting, search',
+      'Bulk operations, webhooks, API keys, rate limiting',
+    ]},
+    { id: 'database', icon: '🗄️', title: 'Database Architecture', items: [
+      'Scalable, normalized multi-tenant schema',
+      'Unlimited projects/users/bugs/comments/files/history/releases',
+      'Soft deletes & full audit history',
+      'Optimized indexes',
+    ]},
+    { id: 'performance', icon: '🚄', title: 'Performance', items: [
+      'Lazy loading & infinite scroll',
+      'Optimistic updates & background sync',
+      'Caching, image/video compression, file dedup',
+      'CDN-ready asset delivery',
+    ]},
+    { id: 'exports', icon: '📤', title: 'Exports', items: [
+      'PDF, Excel, CSV, JSON export',
+      'Print-friendly views',
+      'Scheduled & emailed reports',
+    ]},
+    { id: 'imports', icon: '📥', title: 'Imports', items: [
+      'CSV, Excel, JSON import',
+      'Migrate from Jira, GitHub Issues, Linear, Azure DevOps',
+    ]},
+  ];
+
+  // ---- real build progress (source of truth; keyed by "<category>-<index>") ----
+  // Updated as features actually ship. Anything not listed here is "not started".
+  var PROGRESS = {
+    // General design & theming
+    'design-0': 'done', 'design-1': 'done', 'design-2': 'done', 'design-3': 'doing', 'design-4': 'doing',
+    // Real-time sync (SSE)
+    'realtime-0': 'done', 'realtime-1': 'done', 'realtime-2': 'doing', 'realtime-3': 'done',
+    // All 12 core modules have working, data-backed screens
+    'modules-0': 'done', 'modules-1': 'done', 'modules-2': 'done', 'modules-3': 'done',
+    'modules-4': 'done', 'modules-5': 'done', 'modules-6': 'done', 'modules-7': 'done',
+    'modules-8': 'done', 'modules-9': 'done', 'modules-10': 'done', 'modules-11': 'done',
+    // Bug report form
+    'report-0': 'doing', 'report-1': 'done', 'report-2': 'done', 'report-3': 'done',
+    'report-4': 'done', 'report-5': 'doing', 'report-6': 'doing',
+    // Smart auto-detection
+    'smart-0': 'done', 'smart-1': 'doing',
+    // Comments
+    'comments-0': 'doing', 'comments-1': 'doing', 'comments-4': 'doing', 'comments-5': 'done',
+    // Workflow / statuses
+    'workflow-0': 'done', 'workflow-1': 'doing', 'workflow-2': 'done',
+    // Assignments
+    'assign-0': 'done', 'assign-1': 'done', 'assign-2': 'doing',
+    // Priority & severity
+    'priority-0': 'done', 'priority-1': 'done',
+    // Labels & taxonomy
+    'labels-0': 'done', 'labels-1': 'done', 'labels-2': 'done',
+    // Search
+    'search-0': 'done', 'search-2': 'doing', 'search-3': 'doing',
+    // Kanban
+    'kanban-0': 'done', 'kanban-2': 'doing',
+    // List view
+    'listview-1': 'doing', 'listview-2': 'done',
+    // Timeline
+    'timeline-0': 'done', 'timeline-1': 'doing', 'timeline-2': 'done',
+    // Releases
+    'release-0': 'doing', 'release-1': 'doing', 'release-2': 'done', 'release-3': 'doing',
+    // QA
+    'qa-0': 'done', 'qa-1': 'done', 'qa-2': 'done', 'qa-3': 'done',
+    // Analytics
+    'analytics-0': 'doing', 'analytics-1': 'done', 'analytics-2': 'doing',
+    // Notifications
+    'notify-0': 'doing',
+    // Automation
+    'automation-1': 'doing',
+    // Security
+    'security-0': 'doing', 'security-1': 'done', 'security-3': 'doing',
+    // Admin panel
+    'admin-0': 'doing', 'admin-1': 'doing', 'admin-3': 'doing',
+    // UX
+    'ux-0': 'doing', 'ux-1': 'done',
+    // Database
+    'database-0': 'done', 'database-1': 'done', 'database-2': 'done', 'database-3': 'done',
+    // Performance
+    'performance-1': 'doing',
+  };
+
+  // ---- build item objects with their real status ----
+  var STATES = ['todo', 'doing', 'done'];
+  DATA.forEach(function (cat) {
+    cat.items = cat.items.map(function (label, i) {
+      var id = cat.id + '-' + i;
+      return { id: id, label: label, status: PROGRESS[id] || 'todo' };
+    });
+  });
+
+  // ---- localStorage overrides ----
+  var LS_KEY = 'bt-overview-state-v2';
+  var LS_OPEN = 'bt-overview-open-v2';
+  var overrides = {};
+  try { overrides = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch (e) { overrides = {}; }
+  var openState = {};
+  try { openState = JSON.parse(localStorage.getItem(LS_OPEN) || '{}'); } catch (e) { openState = {}; }
+
+  function getStatus(item) { return overrides[item.id] || item.status; }
+  function setStatus(item, status) {
+    overrides[item.id] = status;
+    localStorage.setItem(LS_KEY, JSON.stringify(overrides));
+  }
+  function saveOpen() { localStorage.setItem(LS_OPEN, JSON.stringify(openState)); }
+
+  // ---- render ----
+  var grid = document.getElementById('grid');
+  var activeFilter = 'all';
+  var searchTerm = '';
+
+  function cardIsOpen(catId) { return openState[catId] !== false; } // default open
+
+  function build() {
+    grid.innerHTML = '';
+    DATA.forEach(function (cat) {
+      var card = document.createElement('div');
+      card.className = 'card' + (cardIsOpen(cat.id) ? ' open' : '');
+      card.dataset.cat = cat.id;
+
+      var head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'card-head';
+      head.innerHTML =
+        '<span class="card-icon">' + cat.icon + '</span>' +
+        '<span class="card-title">' +
+          '<span class="name">' + cat.title + '</span>' +
+          '<span class="bar-row"><span class="bar-track"><span class="bar-fill" style="width:0%"></span></span>' +
+          '<span class="count"></span></span>' +
+        '</span>' +
+        '<span class="chevron">▶</span>';
+      head.addEventListener('click', function () {
+        openState[cat.id] = !cardIsOpen(cat.id);
+        card.classList.toggle('open');
+        saveOpen();
+      });
+      card.appendChild(head);
+
+      var body = document.createElement('div');
+      body.className = 'card-body';
+      var ul = document.createElement('ul');
+      ul.className = 'item-list';
+
+      cat.items.forEach(function (item) {
+        var li = document.createElement('li');
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'item';
+        btn.dataset.status = getStatus(item);
+        btn.innerHTML = '<span class="status-dot"></span><span class="item-label"></span>';
+        btn.querySelector('.item-label').textContent = item.label;
+        btn.addEventListener('click', function () {
+          var cur = getStatus(item);
+          var next = STATES[(STATES.indexOf(cur) + 1) % STATES.length];
+          setStatus(item, next);
+          btn.dataset.status = next;
+          refreshStats();
+        });
+        li.appendChild(btn);
+        ul.appendChild(li);
+      });
+
+      body.appendChild(ul);
+      card.appendChild(body);
+      grid.appendChild(card);
+    });
+    applyFilters();
+    refreshStats();
+  }
+
+  function applyFilters() {
+    var term = searchTerm.trim().toLowerCase();
+    document.querySelectorAll('.card').forEach(function (card) {
+      var anyVisible = false;
+      card.querySelectorAll('.item').forEach(function (btn) {
+        var status = btn.dataset.status;
+        var label = btn.querySelector('.item-label').textContent.toLowerCase();
+        var matchesFilter = activeFilter === 'all' || status === activeFilter;
+        var matchesSearch = !term || label.indexOf(term) !== -1;
+        var visible = matchesFilter && matchesSearch;
+        btn.classList.toggle('hidden', !visible);
+        if (visible) anyVisible = true;
+      });
+      card.classList.toggle('hidden', !anyVisible);
+    });
+  }
+
+  function refreshStats() {
+    var totalDone = 0, totalDoing = 0, totalTodo = 0, total = 0;
+    document.querySelectorAll('.card').forEach(function (card) {
+      var catDone = 0, catDoing = 0, catTotal = 0;
+      card.querySelectorAll('.item').forEach(function (btn) {
+        catTotal++;
+        var s = btn.dataset.status;
+        if (s === 'done') catDone++;
+        else if (s === 'doing') catDoing++;
+      });
+      var pct = catTotal ? Math.round(((catDone + catDoing * 0.5) / catTotal) * 100) : 0;
+      card.querySelector('.bar-fill').style.width = pct + '%';
+      card.querySelector('.count').textContent = catDone + '/' + catTotal + ' done';
+
+      total += catTotal; totalDone += catDone; totalDoing += catDoing;
+      totalTodo += catTotal - catDone - catDoing;
+    });
+
+    var overallPct = total ? Math.round(((totalDone + totalDoing * 0.5) / total) * 100) : 0;
+    document.getElementById('ringPct').textContent = overallPct + '%';
+    document.getElementById('ringSummary').textContent = totalDone + ' / ' + total + ' features';
+    document.getElementById('statDone').textContent = totalDone;
+    document.getElementById('statDoing').textContent = totalDoing;
+    document.getElementById('statTodo').textContent = totalTodo;
+    document.getElementById('statCats').textContent = DATA.length;
+
+    var circumference = 263.9;
+    var offset = circumference - (overallPct / 100) * circumference;
+    document.getElementById('ringProgress').style.strokeDashoffset = offset;
+  }
+
+  // ---- controls ----
+  document.getElementById('search').addEventListener('input', function (e) {
+    searchTerm = e.target.value;
+    applyFilters();
+  });
+  document.querySelectorAll('.filter-chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      document.querySelectorAll('.filter-chip').forEach(function (c) { c.setAttribute('aria-pressed', 'false'); });
+      chip.setAttribute('aria-pressed', 'true');
+      activeFilter = chip.dataset.filter;
+      applyFilters();
+    });
+  });
+  document.getElementById('expandAll').addEventListener('click', function () {
+    DATA.forEach(function (cat) { openState[cat.id] = true; });
+    saveOpen();
+    document.querySelectorAll('.card').forEach(function (c) { c.classList.add('open'); });
+  });
+  document.getElementById('collapseAll').addEventListener('click', function () {
+    DATA.forEach(function (cat) { openState[cat.id] = false; });
+    saveOpen();
+    document.querySelectorAll('.card').forEach(function (c) { c.classList.remove('open'); });
+  });
+  document.getElementById('resetAll').addEventListener('click', function () {
+    if (!confirm('Reset all progress back to "not started"? This only clears your browser-saved clicks, not the file itself.')) return;
+    overrides = {};
+    localStorage.removeItem(LS_KEY);
+    build();
+  });
+
+  build();
+})();
+</script>
+</body>
+</html>

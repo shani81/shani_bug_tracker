@@ -1,0 +1,513 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Enterprise Bug Tracker — data model
+// SQLite for dev (swap `provider` to "postgresql" for prod). No native enums on
+// SQLite, so status/priority/etc. use String columns backed by app-level consts
+// in src/lib/constants.ts. Scalar lists are modeled as relations (join tables).
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ── Tenancy & identity ───────────────────────────────────────────────────────
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  logoColor String   @default("#5b5bd6")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members  Membership[]
+  projects Project[]
+  users    User[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  avatarUrl String?
+  color     String   @default("#7c6ff0")
+  title     String? // job title, e.g. "QA Lead"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgId String?
+  org   Organization? @relation(fields: [orgId], references: [id])
+
+  memberships    Membership[]
+  projectMembers ProjectMember[]
+  reportedIssues Issue[]         @relation("reporter")
+  assignments    IssueAssignee[]
+  comments       Comment[]
+  activities     Activity[]
+  watching       Watcher[]
+  notifications  Notification[]
+  timeLogs       TimeLog[]
+  savedSearches  SavedSearch[]
+  testRuns       TestRun[]
+
+  @@index([orgId])
+}
+
+model Membership {
+  id     String @id @default(cuid())
+  role   String @default("member") // owner | admin | member | guest
+  orgId  String
+  userId String
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, userId])
+  @@index([userId])
+}
+
+// ── Projects & configuration ─────────────────────────────────────────────────
+
+model Project {
+  id          String   @id @default(cuid())
+  orgId       String
+  key         String // short code used in issue keys, e.g. "WEB" -> WEB-000001
+  name        String
+  description String?
+  color       String   @default("#5b5bd6")
+  icon        String   @default("📦")
+  isArchived  Boolean  @default(false)
+  issueSeq    Int      @default(0) // running counter for issue numbers
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  members     ProjectMember[]
+  statuses    WorkflowStatus[]
+  labels      Label[]
+  components  Component[]
+  issues      Issue[]
+  releases    Release[]
+  sprints     Sprint[]
+  testPlans   TestPlan[]
+  testCases   TestCase[]
+  automations AutomationRule[]
+
+  @@unique([orgId, key])
+  @@index([orgId])
+}
+
+model ProjectMember {
+  id        String @id @default(cuid())
+  projectId String
+  userId    String
+  role      String @default("developer") // lead | developer | qa | designer | manager | support | viewer
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+// Custom workflow statuses per project. `category` drives kanban columns + analytics.
+model WorkflowStatus {
+  id        String  @id @default(cuid())
+  projectId String
+  name      String
+  category  String  @default("unstarted") // backlog | unstarted | started | testing | done | canceled
+  color     String  @default("#9095a6")
+  order     Int     @default(0)
+  isDefault Boolean @default(false)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model Label {
+  id        String @id @default(cuid())
+  projectId String
+  name      String
+  color     String @default("#5b5bd6")
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  IssueLabel[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+// A "Component" is a module/area of the product (e.g. Checkout, Auth, API).
+model Component {
+  id        String  @id @default(cuid())
+  projectId String
+  name      String
+  leadId    String?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+// ── Issues (bugs, features, improvements, tasks, …) ──────────────────────────
+
+model Issue {
+  id        String @id @default(cuid())
+  projectId String
+  number    Int // per-project sequence number
+  key       String // denormalized display key, e.g. "WEB-000042"
+
+  type     String @default("bug") // see constants: bug | error | crash | feature | improvement | task | ...
+  title    String
+  descMd   String @default("") // markdown description
+  expected String @default("")
+  actual   String @default("")
+  steps    String @default("") // reproduction steps (markdown / numbered)
+  url      String @default("") // affected URL
+
+  priority String @default("medium") // critical | highest | high | medium | low | lowest
+  severity String @default("major") // blocker | critical | major | minor | cosmetic
+  impact   String @default("moderate") // extensive | significant | moderate | minor | tangential
+
+  statusId String
+  status   WorkflowStatus @relation(fields: [statusId], references: [id])
+
+  reporterId  String
+  reporter    User       @relation("reporter", fields: [reporterId], references: [id])
+  componentId String?
+  component   Component? @relation(fields: [componentId], references: [id])
+  releaseId   String?
+  release     Release?   @relation(fields: [releaseId], references: [id])
+  sprintId    String?
+  sprint      Sprint?    @relation(fields: [sprintId], references: [id])
+
+  // Smart-reporting environment context
+  environment String @default("production") // production | staging | development | local
+  browser     String @default("")
+  os          String @default("")
+  device      String @default("")
+  appVersion  String @default("")
+  gitCommit   String @default("")
+  buildNumber String @default("")
+  sessionId   String @default("")
+  contextJson String @default("") // JSON: console errors, network, perf, memory, cpu
+
+  storyPoints Int?
+  estimateMin Int? // estimate in minutes
+  dueDate     DateTime?
+  boardOrder  Float     @default(0) // ordering within a kanban column
+
+  isArchived Boolean   @default(false)
+  deletedAt  DateTime? // soft delete
+  resolvedAt DateTime?
+  closedAt   DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignees   IssueAssignee[]
+  labels      IssueLabel[]
+  comments    Comment[]
+  attachments Attachment[]
+  activities  Activity[]
+  watchers    Watcher[]
+  timeLogs    TimeLog[]
+  testResults TestResult[]
+
+  // self-relation for duplicates / links
+  duplicateOfId String?
+  duplicateOf   Issue?  @relation("duplicates", fields: [duplicateOfId], references: [id])
+  duplicates    Issue[] @relation("duplicates")
+
+  @@unique([projectId, number])
+  @@index([projectId])
+  @@index([statusId])
+  @@index([reporterId])
+  @@index([type])
+  @@index([priority])
+  @@index([releaseId])
+  @@index([sprintId])
+}
+
+model IssueAssignee {
+  id      String @id @default(cuid())
+  issueId String
+  userId  String
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, userId])
+  @@index([userId])
+}
+
+model IssueLabel {
+  issueId String
+  labelId String
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, labelId])
+  @@index([labelId])
+}
+
+model Watcher {
+  id      String @id @default(cuid())
+  issueId String
+  userId  String
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, userId])
+  @@index([userId])
+}
+
+// ── Comments, attachments, activity, time ────────────────────────────────────
+
+model Comment {
+  id        String  @id @default(cuid())
+  issueId   String
+  authorId  String
+  bodyMd    String
+  isPinned  Boolean @default(false)
+  isPrivate Boolean @default(false) // internal note vs customer-visible
+
+  parentId String?
+  parent   Comment?  @relation("thread", fields: [parentId], references: [id])
+  replies  Comment[] @relation("thread")
+
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  issue  Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([parentId])
+}
+
+model Attachment {
+  id        String @id @default(cuid())
+  issueId   String
+  name      String
+  kind      String @default("file") // image | video | audio | screen-recording | pdf | log | crash | json | zip | file
+  url       String // data URL or object-store URL
+  sizeBytes Int    @default(0)
+  mimeType  String @default("")
+
+  createdAt DateTime @default(now())
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+}
+
+// Immutable activity / audit trail.
+model Activity {
+  id       String  @id @default(cuid())
+  issueId  String?
+  actorId  String?
+  verb     String // created | updated | commented | status_changed | assigned | ...
+  field    String? // which field changed
+  fromVal  String?
+  toVal    String?
+  metaJson String  @default("")
+
+  createdAt DateTime @default(now())
+
+  issue Issue? @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  actor User?  @relation(fields: [actorId], references: [id])
+
+  @@index([issueId])
+  @@index([actorId])
+}
+
+model TimeLog {
+  id        String   @id @default(cuid())
+  issueId   String
+  userId    String
+  minutes   Int
+  note      String   @default("")
+  spentAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([userId])
+}
+
+// ── Releases & sprints ───────────────────────────────────────────────────────
+
+model Release {
+  id          String    @id @default(cuid())
+  projectId   String
+  version     String // e.g. "2.4.0"
+  name        String    @default("")
+  description String    @default("")
+  status      String    @default("planned") // planned | in_progress | released | rolled_back
+  releaseDate DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@unique([projectId, version])
+  @@index([projectId])
+}
+
+model Sprint {
+  id        String    @id @default(cuid())
+  projectId String
+  name      String
+  goal      String    @default("")
+  status    String    @default("planned") // planned | active | completed
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  Issue[]
+
+  @@index([projectId])
+}
+
+// ── QA ───────────────────────────────────────────────────────────────────────
+
+model TestPlan {
+  id          String   @id @default(cuid())
+  projectId   String
+  name        String
+  description String   @default("")
+  createdAt   DateTime @default(now())
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  cases   TestCase[]
+  runs    TestRun[]
+
+  @@index([projectId])
+}
+
+model TestCase {
+  id           String  @id @default(cuid())
+  projectId    String
+  planId       String?
+  title        String
+  kind         String  @default("manual") // manual | smoke | regression | acceptance | automation
+  precondition String  @default("")
+  steps        String  @default("")
+  expected     String  @default("")
+  priority     String  @default("medium")
+
+  createdAt DateTime @default(now())
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  plan    TestPlan?    @relation(fields: [planId], references: [id])
+  results TestResult[]
+
+  @@index([projectId])
+  @@index([planId])
+}
+
+model TestRun {
+  id        String    @id @default(cuid())
+  planId    String
+  name      String
+  runById   String?
+  status    String    @default("in_progress") // in_progress | completed
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  plan    TestPlan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  runBy   User?        @relation(fields: [runById], references: [id])
+  results TestResult[]
+
+  @@index([planId])
+}
+
+model TestResult {
+  id      String  @id @default(cuid())
+  runId   String
+  caseId  String
+  status  String  @default("untested") // pass | fail | blocked | retest | untested
+  note    String  @default("")
+  issueId String? // linked bug when failed
+
+  createdAt DateTime @default(now())
+
+  run   TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  case  TestCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  issue Issue?   @relation(fields: [issueId], references: [id])
+
+  @@index([runId])
+  @@index([caseId])
+}
+
+// ── Notifications, search, automation ────────────────────────────────────────
+
+model Notification {
+  id      String  @id @default(cuid())
+  userId  String
+  title   String
+  body    String  @default("")
+  kind    String  @default("mention") // mention | assigned | status | comment | release | system
+  issueId String?
+  isRead  Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  queryJson String // serialized filter state
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AutomationRule {
+  id         String  @id @default(cuid())
+  projectId  String
+  name       String
+  isEnabled  Boolean @default(true)
+  trigger    String  @default("issue.created") // trigger event
+  condJson   String  @default("[]") // conditions
+  actionJson String  @default("[]") // actions
+  runCount   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
