@@ -8,7 +8,7 @@ const SESSION_COOKIE = "bt_session";
 // happens server-side in the (app) layout, in every server action and in every
 // query, all of which resolve the session against the DB.
 /** Routes that must stay reachable while signed out. */
-const PUBLIC = ["/login", "/invite"];
+const PUBLIC = ["/login", "/invite", "/reset"];
 const isPublic = (p: string) => PUBLIC.some((r) => p === r || p.startsWith(r + "/"));
 
 export function proxy(req: NextRequest) {
@@ -28,5 +28,5 @@ export function proxy(req: NextRequest) {
 
 export const config = {
   // Skip Next internals, static assets and the public auth routes.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|invite|api/).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|login|invite|reset|api/).*)"],
 };

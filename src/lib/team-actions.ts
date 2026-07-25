@@ -274,3 +274,56 @@ export async function changeOwnPasswordAction(
   revalidatePath("/settings");
   return { ok: true };
 }
+
+// ── Admin-issued password reset ──────────────────────────────────────────────
+
+const RESET_HOURS = 2;
+
+export type ResetLinkResult = { ok: true; url: string } | { ok: false; error: string };
+
+/**
+ * Issue a single-use password reset link for a member.
+ *
+ * Requires member:manage and is scoped to the caller's org. There is no mail
+ * delivery in this build, so the admin shares the link out of band — the same
+ * tradeoff as invitations.
+ */
+export async function issuePasswordReset(userIdInput: string): Promise<ResetLinkResult> {
+  const ctx = await requirePermission("member:manage");
+  const userId = idSchema.parse(userIdInput);
+
+  const membership = await prisma.membership.findFirst({
+    where: { orgId: ctx.orgId, userId },
+    select: { role: true },
+  });
+  if (!membership) return { ok: false, error: "Member not found." };
+
+  // An admin must not be able to seize an owner's (or another admin's)
+  // account by resetting their password — that would be privilege escalation.
+  if (ctx.orgRole !== "owner" && (membership.role === "owner" || membership.role === "admin")) {
+    return { ok: false, error: "Only an owner can reset that member's password." };
+  }
+
+  // supersede any outstanding reset for this user
+  await prisma.passwordReset.updateMany({
+    where: { userId, usedAt: null },
+    data: { usedAt: new Date() },
+  });
+
+  const token = randomBytes(32).toString("base64url");
+  await prisma.passwordReset.create({
+    data: {
+      userId,
+      tokenHash: hashToken(token),
+      expiresAt: new Date(Date.now() + RESET_HOURS * 3600_000),
+      issuedById: ctx.userId,
+    },
+  });
+
+  const h = await headers();
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const host = h.get("host") ?? "localhost:3000";
+
+  revalidatePath("/settings");
+  return { ok: true, url: `${proto}://${host}/reset/${token}` };
+}

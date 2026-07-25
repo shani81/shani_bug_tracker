@@ -39,6 +39,7 @@ import {
   changeMemberRole,
   setMemberActive,
   changeOwnPasswordAction,
+  issuePasswordReset,
   type PasswordState,
 } from "@/lib/team-actions";
 import { createApiToken, revokeApiToken } from "@/lib/token-actions";
@@ -327,6 +328,8 @@ function TeamTab({
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [resetLink, setResetLink] = React.useState<{ name: string; url: string } | null>(null);
+  const [copiedReset, setCopiedReset] = React.useState(false);
 
   const canManage = grantableRoles.length > 0;
 
@@ -378,6 +381,38 @@ function TeamTab({
         >
           <TriangleAlert size={14} /> {error}
         </p>
+      )}
+
+      {resetLink && (
+        <Card className="p-3">
+          <p className="mb-1.5 text-[12px] font-medium">
+            Reset link for <span className="text-text">{resetLink.name}</span> — valid for 2 hours, single use.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-surface-3 px-2 py-1.5 font-mono text-[11.5px]">
+              {resetLink.url}
+            </code>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(resetLink.url);
+                  setCopiedReset(true);
+                  setTimeout(() => setCopiedReset(false), 1800);
+                } catch {
+                  /* clipboard unavailable — the value is selectable */
+                }
+              }}
+            >
+              {copiedReset ? <Check size={14} /> : <Copy size={14} />}
+              {copiedReset ? "Copied" : "Copy"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setResetLink(null)}>
+              Dismiss
+            </Button>
+          </div>
+        </Card>
       )}
 
       {canManage && (
@@ -504,6 +539,23 @@ function TeamTab({
                     <Badge color={roleColor(m.role)} dot className="shrink-0">
                       {roleLabel(m.role)}
                     </Badge>
+                  )}
+
+                  {editable && (
+                    <button
+                      onClick={() =>
+                        run(m.id, async () => {
+                          const res = await issuePasswordReset(m.id);
+                          if (res.ok) setResetLink({ name: m.name, url: res.url });
+                          else setError(res.error);
+                        })
+                      }
+                      disabled={pending}
+                      title="Issue a password reset link"
+                      className="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted hover:bg-surface-3 hover:text-text disabled:opacity-50"
+                    >
+                      Reset password
+                    </button>
                   )}
 
                   {editable && (

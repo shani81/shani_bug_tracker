@@ -50,8 +50,9 @@ model User {
 
   sessions Session[]
 
-  invitationsSent Invitation[] @relation("InvitationsSent")
+  invitationsSent Invitation[]    @relation("InvitationsSent")
   apiTokens       ApiToken[]
+  passwordResets  PasswordReset[] @relation("PasswordResets")
 
   memberships    Membership[]
   projectMembers ProjectMember[]
@@ -129,6 +130,24 @@ model ApiToken {
 
   @@index([userId])
   @@index([orgId])
+}
+
+// Single-use password reset. Issued by an admin (there is no mail delivery in
+// this build, so the link is shared out of band) and, like every other token
+// here, stored only as a SHA-256 hash.
+model PasswordReset {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  issuedById String
+  createdAt  DateTime  @default(now())
+
+  user User @relation("PasswordResets", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Membership {
