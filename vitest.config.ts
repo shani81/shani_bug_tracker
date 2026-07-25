@@ -14,6 +14,10 @@ export default defineConfig({
     alias: {
       // `server-only` throws outside a server component; harmless in tests.
       "server-only": path.resolve(__dirname, "tests/stubs/server-only.ts"),
+      // Server actions read cookies/headers through these; vitest has no
+      // request scope, so tests supply their own (see tests/stubs).
+      "next/headers": path.resolve(__dirname, "tests/stubs/next-headers.ts"),
+      "next/cache": path.resolve(__dirname, "tests/stubs/next-cache.ts"),
       "@": path.resolve(__dirname, "src"),
     },
   },

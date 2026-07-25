@@ -70,6 +70,21 @@ export async function cleanupTestArtifacts() {
   await prisma.issue.deleteMany({ where: { title: { contains: "[vitest]" } } });
 }
 
+/**
+ * Run `fn` as the given user, by putting a real session cookie where the
+ * stubbed `next/headers` will find it. Lets tests exercise server actions
+ * directly instead of only over HTTP.
+ */
+export async function actingAs<T>(email: string, fn: () => Promise<T>): Promise<T> {
+  const { token } = await sessionFor(email);
+  const { withCookie } = await import("./stubs/next-headers");
+  try {
+    return await withCookie(token, fn);
+  } finally {
+    await prisma.session.deleteMany({ where: { tokenHash: sha256(token) } });
+  }
+}
+
 /** Skip an e2e suite cleanly when no dev server is listening. */
 export async function serverIsUp(): Promise<boolean> {
   try {

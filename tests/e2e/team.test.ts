@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
-import { prisma, sessionFor, getPage, sha256, serverIsUp } from "../helpers";
+import { prisma, sessionFor, getPage, sha256, serverIsUp, actingAs } from "../helpers";
 import { peekInvitation } from "@/lib/invite-queries";
 import { acceptInvitationAction } from "@/lib/invite-actions";
 
@@ -108,6 +108,55 @@ describe("invite cannot take over an existing account", () => {
     expect(after!.name).toBe(before!.name);
     const inv = await prisma.invitation.findUnique({ where: { tokenHash: sha256(token) } });
     expect(inv!.acceptedAt).toBeNull();
+  });
+
+  it("refuses when the attacker is signed in as a DIFFERENT user", async () => {
+    // The strongest form: Mallory holds a valid session of her own and
+    // redeems an invite minted for the owner's address.
+    const before = await prisma.user.findUnique({ where: { email: "you@shani.dev" } });
+    const token = await makeInvite("you@shani.dev", { role: "owner" });
+
+    const fd = new FormData();
+    fd.set("token", token);
+    fd.set("password", "attacker-chosen-password");
+    fd.set("name", "Mallory");
+
+    const res = await actingAs("maya@acme.dev", () =>
+      acceptInvitationAction({}, fd as unknown as FormData),
+    );
+
+    expect(res.error).toBeTruthy();
+    const after = await prisma.user.findUnique({ where: { email: "you@shani.dev" } });
+    expect(after!.passwordHash).toBe(before!.passwordHash);
+    const inv = await prisma.invitation.findUnique({ where: { tokenHash: sha256(token) } });
+    expect(inv!.acceptedAt).toBeNull();
+  });
+
+  it("ALLOWS the rightful owner to accept while signed in as themselves", async () => {
+    // The guard must not break the legitimate flow: an existing user joining a
+    // second workspace signs in first, then accepts.
+    const email = `vitest-second-org-${Date.now()}@acme.dev`;
+    const user = await prisma.user.create({
+      data: { name: "Second Org User", email, passwordHash: "scrypt$32768$8$1$" + "a".repeat(32) + "$" + "b".repeat(128) },
+    });
+    const token = await makeInvite(email, { role: "member" });
+
+    const fd = new FormData();
+    fd.set("token", token);
+    fd.set("password", "unused-for-existing-accounts");
+    fd.set("name", "Second Org User");
+
+    const res = await actingAs(email, () => acceptInvitationAction({}, fd as unknown as FormData));
+
+    expect(res.error).toBeUndefined();
+    expect(res.ok).toBe(true);
+    const membership = await prisma.membership.findFirst({ where: { orgId, userId: user.id } });
+    expect(membership).not.toBeNull();
+    expect(membership!.role).toBe("member");
+
+    await prisma.membership.deleteMany({ where: { userId: user.id } });
+    await prisma.session.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
   });
 
   it("refuses for a password-less account (post-migration state)", async () => {

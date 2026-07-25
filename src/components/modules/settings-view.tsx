@@ -25,6 +25,7 @@ import {
   TriangleAlert,
   KeySquare,
   Plus,
+  DatabaseZap,
   type LucideIcon,
 } from "lucide-react";
 import { useActionState } from "react";
@@ -41,6 +42,7 @@ import {
   type PasswordState,
 } from "@/lib/team-actions";
 import { createApiToken, revokeApiToken } from "@/lib/token-actions";
+import { DataTab } from "@/components/modules/data-tab";
 import { categoryMeta } from "@/lib/constants";
 import { cn, colorFromString, withAlpha, formatDate, relativeTime } from "@/lib/utils";
 import type { SettingsData } from "@/lib/module-queries";
@@ -49,12 +51,13 @@ type Project = SettingsData["projects"][number];
 type Member = SettingsData["members"][number];
 type Automation = Project["automations"][number];
 
-type Tab = "projects" | "team" | "automation" | "account" | "appearance";
+type Tab = "projects" | "team" | "automation" | "data" | "account" | "appearance";
 
 const TABS: { value: Tab; label: string; icon: LucideIcon }[] = [
   { value: "projects", label: "Projects", icon: FolderKanban },
   { value: "team", label: "Team", icon: Users },
   { value: "automation", label: "Automation", icon: Zap },
+  { value: "data", label: "Import / Export", icon: DatabaseZap },
   { value: "account", label: "Account", icon: KeyRound },
   { value: "appearance", label: "Appearance", icon: Palette },
 ];
@@ -88,6 +91,7 @@ export function SettingsView({ data }: { data: SettingsData }) {
     projects: data.projects.length,
     team: data.members.length + data.invitations.length,
     automation: automationCount,
+    data: undefined,
     account: undefined,
     appearance: undefined,
   };
@@ -164,6 +168,7 @@ export function SettingsView({ data }: { data: SettingsData }) {
             pending={pending}
           />
         )}
+        {tab === "data" && <DataTab projects={data.projects} />}
         {tab === "account" && <AccountTab tokens={data.apiTokens} />}
         {tab === "appearance" && <AppearanceTab />}
       </div>
