@@ -467,7 +467,8 @@ model Release {
   name        String    @default("")
   description String    @default("")
   status      String    @default("planned") // planned | in_progress | released | rolled_back
-  releaseDate DateTime?
+  releaseDate DateTime? // the target date
+  releasedAt  DateTime? // when it actually shipped
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

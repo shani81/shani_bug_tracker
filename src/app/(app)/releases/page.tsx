@@ -1,6 +1,8 @@
 import { Rocket, Timer, Ship } from "lucide-react";
 import { getReleases, type ReleaseData } from "@/lib/module-queries";
 import { PageHeader, PageContainer } from "@/components/page-header";
+import { CreateBar } from "@/components/modules/create-bar";
+import { getWorkspace } from "@/lib/queries";
 import { StatTile } from "@/components/dashboard/charts";
 import { Badge, Card, EmptyState } from "@/components/ui/primitives";
 import { RELEASE_STATUSES } from "@/lib/constants";
@@ -21,7 +23,8 @@ function statusMeta(value: string) {
 }
 
 export default async function ReleasesPage() {
-  const releases = await getReleases();
+  const [releases, workspace] = await Promise.all([getReleases(), getWorkspace()]);
+  const projectOptions = (workspace?.projects ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const total = releases.length;
   const inProgress = releases.filter((r) => r.status === "in_progress").length;
@@ -43,6 +46,7 @@ export default async function ReleasesPage() {
         icon={"🚀"}
         title="Releases"
         subtitle="Version management, release notes & deployment status"
+        actions={<CreateBar kind="release" projects={projectOptions} />}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

@@ -1,6 +1,8 @@
 import { Gauge } from "lucide-react";
 import { getSprints, type SprintData } from "@/lib/module-queries";
 import { PageHeader, PageContainer } from "@/components/page-header";
+import { CreateBar } from "@/components/modules/create-bar";
+import { getWorkspace } from "@/lib/queries";
 import { Badge, Card, EmptyState, SectionTitle } from "@/components/ui/primitives";
 import { SPRINT_STATUSES } from "@/lib/constants";
 import { cn, formatDate } from "@/lib/utils";
@@ -85,7 +87,8 @@ function SprintSection({ title, sprints }: { title: string; sprints: SprintData[
 }
 
 export default async function SprintsPage() {
-  const sprints = await getSprints();
+  const [sprints, workspace] = await Promise.all([getSprints(), getWorkspace()]);
+  const projectOptions = (workspace?.projects ?? []).map((p) => ({ id: p.id, name: p.name }));
 
   const active = sprints.filter((s) => s.status === "active");
   const planned = sprints.filter((s) => s.status === "planned");
@@ -94,7 +97,12 @@ export default async function SprintsPage() {
 
   return (
     <PageContainer>
-      <PageHeader icon={"📊"} title="Sprint Planning" subtitle="Plan, track and burn down your sprints" />
+      <PageHeader
+        icon={"📊"}
+        title="Sprint Planning"
+        subtitle="Plan, track and burn down your sprints"
+        actions={<CreateBar kind="sprint" projects={projectOptions} />}
+      />
 
       {sprints.length === 0 ? (
         <EmptyState

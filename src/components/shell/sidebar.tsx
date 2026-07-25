@@ -9,6 +9,7 @@ import { useWorkspace } from "@/components/workspace";
 import { cn } from "@/lib/utils";
 import { X, LogOut } from "lucide-react";
 import { signOutAction } from "@/lib/auth-actions";
+import { clearPwaCaches } from "@/components/pwa";
 
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -108,7 +109,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               {ws.currentUser.title} · <span className="capitalize">{ws.orgRole}</span>
             </p>
           </div>
-          <form action={signOutAction}>
+          <form action={signOutAction} onSubmit={() => clearPwaCaches()}>
             <button
               type="submit"
               title="Sign out"

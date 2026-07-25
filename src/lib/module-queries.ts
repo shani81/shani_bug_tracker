@@ -315,7 +315,7 @@ export type SettingsData = {
     name: string;
     icon: string;
     color: string;
-    statuses: { id: string; name: string; category: string; color: string }[];
+    statuses: { id: string; name: string; category: string; color: string; isDefault: boolean }[];
     labels: { id: string; name: string; color: string }[];
     components: { id: string; name: string }[];
     automations: { id: string; name: string; trigger: string; isEnabled: boolean; runCount: number }[];
@@ -421,7 +421,13 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
       name: p.name,
       icon: p.icon,
       color: p.color,
-      statuses: p.statuses.map((s) => ({ id: s.id, name: s.name, category: s.category, color: s.color })),
+      statuses: p.statuses.map((s) => ({
+        id: s.id,
+        name: s.name,
+        category: s.category,
+        color: s.color,
+        isDefault: s.isDefault,
+      })),
       labels: p.labels.map((l) => ({ id: l.id, name: l.name, color: l.color })),
       components: p.components.map((c) => ({ id: c.id, name: c.name })),
       automations: p.automations.map((a) => ({

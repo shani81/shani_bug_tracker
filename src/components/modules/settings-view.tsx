@@ -45,6 +45,7 @@ import {
 import { createApiToken, revokeApiToken } from "@/lib/token-actions";
 import { DataTab } from "@/components/modules/data-tab";
 import { WebhooksPanel } from "@/components/modules/webhooks-panel";
+import { ProjectConfig } from "@/components/modules/project-config";
 import { categoryMeta } from "@/lib/constants";
 import { cn, colorFromString, withAlpha, formatDate, relativeTime } from "@/lib/utils";
 import type { SettingsData } from "@/lib/module-queries";
@@ -218,63 +219,7 @@ function ProjectsTab({ projects }: { projects: Project[] }) {
             </Badge>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Panel icon={<Workflow size={14} />} title="Workflow statuses" count={p.statuses.length} className="lg:col-span-2">
-              {p.statuses.length === 0 ? (
-                <Fallback>No statuses configured</Fallback>
-              ) : (
-                p.statuses.map((s) => {
-                  const cat = categoryMeta(s.category);
-                  return (
-                    <span
-                      key={s.id}
-                      title={`${s.name} · ${cat.label}`}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-[12px]"
-                    >
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: s.color }} />
-                      {s.name}
-                      <span className="text-[10.5px] text-faint">{cat.label}</span>
-                    </span>
-                  );
-                })
-              )}
-            </Panel>
-
-            <Panel icon={<Tag size={14} />} title="Labels" count={p.labels.length}>
-              {p.labels.length === 0 ? (
-                <Fallback>No labels yet</Fallback>
-              ) : (
-                p.labels.map((l) => (
-                  <span
-                    key={l.id}
-                    className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11.5px] font-medium"
-                    style={{
-                      color: l.color,
-                      backgroundColor: withAlpha(l.color, 0.13),
-                    }}
-                  >
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: l.color }} />
-                    {l.name}
-                  </span>
-                ))
-              )}
-            </Panel>
-
-            <Panel icon={<Boxes size={14} />} title="Components" count={p.components.length}>
-              {p.components.length === 0 ? (
-                <Fallback>No components yet</Fallback>
-              ) : (
-                p.components.map((c) => (
-                  <span
-                    key={c.id}
-                    className="inline-flex items-center rounded-md bg-surface-2 px-2 py-1 text-[11.5px] text-muted"
-                  >
-                    {c.name}
-                  </span>
-                ))
-              )}
-            </Panel>
-          </div>
+          <ProjectConfig project={p} />
         </Card>
       ))}
     </div>
