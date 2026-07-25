@@ -331,6 +331,17 @@ export type SettingsData = {
     isSelf: boolean;
   }[];
   invitations: { id: string; email: string; role: string; invitedBy: string; expiresAt: string }[];
+  webhooks: {
+    id: string;
+    name: string;
+    url: string;
+    events: string[];
+    isEnabled: boolean;
+    projectName: string | null;
+    lastStatus: number | null;
+    lastError: string | null;
+    lastFiredAt: string | null;
+  }[];
   /** the CALLER's own API tokens — never anyone else's */
   apiTokens: {
     id: string;
@@ -349,9 +360,12 @@ export type SettingsData = {
 export const getSettings = cache(async (): Promise<SettingsData> => {
   const [org, ctx] = await Promise.all([getActiveOrg(), getAuthContext()]);
   if (!org || !ctx) {
-    return { projects: [], members: [], invitations: [], apiTokens: [], grantableRoles: [], viewerRole: "" };
+    return {
+      projects: [], members: [], invitations: [], apiTokens: [], webhooks: [],
+      grantableRoles: [], viewerRole: "",
+    };
   }
-  const [projects, memberships, invitations, apiTokens] = await Promise.all([
+  const [projects, memberships, invitations, apiTokens, webhooks] = await Promise.all([
     prisma.project.findMany({
       where: { orgId: org.id },
       include: {
@@ -379,6 +393,16 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
     prisma.apiToken.findMany({
       where: { userId: ctx.userId, revokedAt: null },
       orderBy: { createdAt: "desc" },
+    }),
+    prisma.webhook.findMany({
+      where: { orgId: org.id },
+      // never select `secret` — it must not reach the client
+      select: {
+        id: true, name: true, url: true, events: true, isEnabled: true,
+        lastStatus: true, lastError: true, lastFiredAt: true,
+        project: { select: { name: true } },
+      },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
@@ -433,6 +457,17 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
       lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
       expiresAt: t.expiresAt?.toISOString() ?? null,
       createdAt: t.createdAt.toISOString(),
+    })),
+    webhooks: webhooks.map((w) => ({
+      id: w.id,
+      name: w.name,
+      url: w.url,
+      events: w.events.split(",").filter(Boolean),
+      isEnabled: w.isEnabled,
+      projectName: w.project?.name ?? null,
+      lastStatus: w.lastStatus,
+      lastError: w.lastError,
+      lastFiredAt: w.lastFiredAt?.toISOString() ?? null,
     })),
     grantableRoles: grantable,
     viewerRole: ctx.orgRole,

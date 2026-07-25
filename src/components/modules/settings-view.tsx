@@ -43,6 +43,7 @@ import {
 } from "@/lib/team-actions";
 import { createApiToken, revokeApiToken } from "@/lib/token-actions";
 import { DataTab } from "@/components/modules/data-tab";
+import { WebhooksPanel } from "@/components/modules/webhooks-panel";
 import { categoryMeta } from "@/lib/constants";
 import { cn, colorFromString, withAlpha, formatDate, relativeTime } from "@/lib/utils";
 import type { SettingsData } from "@/lib/module-queries";
@@ -161,12 +162,15 @@ export function SettingsView({ data }: { data: SettingsData }) {
           />
         )}
         {tab === "automation" && (
-          <AutomationTab
-            projects={data.projects}
-            isEnabled={isEnabled}
-            onToggle={onToggle}
-            pending={pending}
-          />
+          <div className="flex flex-col gap-4">
+            <WebhooksPanel webhooks={data.webhooks} projects={data.projects} />
+            <AutomationTab
+              projects={data.projects}
+              isEnabled={isEnabled}
+              onToggle={onToggle}
+              pending={pending}
+            />
+          </div>
         )}
         {tab === "data" && <DataTab projects={data.projects} />}
         {tab === "account" && <AccountTab tokens={data.apiTokens} />}

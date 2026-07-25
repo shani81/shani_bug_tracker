@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 import { emit } from "@/lib/realtime";
+import { dispatchWebhooks } from "@/lib/webhooks";
 import { formatKey } from "@/lib/utils";
 import {
   ValidationError,
@@ -214,6 +215,13 @@ export async function createIssue(input: CreateIssueInput) {
   }
 
   emit({ type: "issue.created", id: issue.id, orgId: ctx.orgId, data: { key: issue.key } });
+  // detached on purpose: a slow receiver must not delay the response
+  void dispatchWebhooks({
+    orgId: ctx.orgId,
+    projectId: project.id,
+    event: "issue.created",
+    data: { id: issue.id, key: issue.key, title: issue.title, type: issue.type, priority: issue.priority },
+  });
   revalidateAll();
   return { id: issue.id, key: issue.key };
 }
@@ -281,6 +289,12 @@ export async function updateIssue(id: string, patch: Record<string, unknown>) {
   }
 
   emit({ type: "issue.updated", id, orgId: ctx.orgId });
+  void dispatchWebhooks({
+    orgId: ctx.orgId,
+    projectId: issue.projectId,
+    event: "issue.updated",
+    data: { id, key: existing.key, changed: Object.keys(data) },
+  });
   revalidateAll();
   revalidatePath(`/issue/${id}`);
   return { ok: true };
@@ -323,6 +337,18 @@ export async function changeStatus(id: string, statusIdInput: string, boardOrder
   });
 
   emit({ type: "status.changed", id, orgId: ctx.orgId, data: { statusId } });
+  void dispatchWebhooks({
+    orgId: ctx.orgId,
+    projectId: existing.projectId,
+    event: "status.changed",
+    data: {
+      id,
+      key: existing.key,
+      from: existing.status.name,
+      to: nextStatus.name,
+      category: nextStatus.category,
+    },
+  });
   revalidateAll();
   revalidatePath(`/issue/${id}`);
   return { ok: true };
@@ -392,6 +418,14 @@ export async function addComment(issueId: string, bodyMd: string, parentId?: str
   });
   await logActivity({ issueId, actorId: ctx.userId, verb: "commented" });
   emit({ type: "comment.created", id: issueId, orgId: ctx.orgId, data: { commentId: comment.id } });
+  // private notes are internal — never ship their body to an external endpoint
+  if (!canBePrivate) {
+    void dispatchWebhooks({
+      orgId: ctx.orgId,
+      event: "comment.created",
+      data: { issueId, commentId: comment.id, author: ctx.name, body: body.slice(0, 500) },
+    });
+  }
   revalidatePath(`/issue/${issueId}`);
   return { id: comment.id };
 }
@@ -431,6 +465,7 @@ export async function softDeleteIssue(id: string) {
   await prisma.issue.update({ where: { id }, data: { deletedAt: new Date() } });
   await logActivity({ issueId: id, actorId: ctx.userId, verb: "deleted" });
   emit({ type: "issue.deleted", id, orgId: ctx.orgId });
+  void dispatchWebhooks({ orgId: ctx.orgId, event: "issue.deleted", data: { id } });
   revalidateAll();
   return { ok: true };
 }

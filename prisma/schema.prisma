@@ -30,6 +30,7 @@ model Organization {
   invitations   Invitation[]
   apiTokens     ApiToken[]
   savedSearches SavedSearch[]
+  webhooks      Webhook[]
 }
 
 model User {
@@ -176,6 +177,7 @@ model Project {
   testPlans   TestPlan[]
   testCases   TestCase[]
   automations AutomationRule[]
+  webhooks    Webhook[]
 
   @@unique([orgId, key])
   @@index([orgId])
@@ -576,6 +578,48 @@ model SavedSearch {
 
   @@index([userId])
   @@index([orgId, group])
+}
+
+// Outbound webhook. `secret` signs each delivery so the receiver can verify
+// the payload really came from us and was not replayed.
+model Webhook {
+  id           String    @id @default(cuid())
+  orgId        String
+  projectId    String? // null = all projects in the org
+  name         String
+  url          String
+  secret       String // HMAC-SHA256 signing key, shown once at creation
+  events       String    @default("issue.created,issue.updated,status.changed")
+  isEnabled    Boolean   @default(true)
+  createdById  String
+  lastStatus   Int? // HTTP status of the most recent attempt
+  lastError    String?
+  lastFiredAt  DateTime?
+  failureCount Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  org        Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  project    Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([orgId])
+  @@index([projectId])
+}
+
+// One delivery attempt, kept so failures are diagnosable without server logs.
+model WebhookDelivery {
+  id         String   @id @default(cuid())
+  webhookId  String
+  event      String
+  payload    String
+  statusCode Int?
+  error      String?
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  webhook Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
 }
 
 model AutomationRule {

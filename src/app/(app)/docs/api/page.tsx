@@ -20,6 +20,7 @@ const ENDPOINTS: Endpoint[] = [
   { method: "PATCH", path: "/api/v1/issues/{id}", scope: "write", summary: "Update an issue.", detail: "Editable fields plus statusId, assigneeIds[] and labelIds[]. A statusId change is routed through the transition logic, so resolution timestamps and activity are recorded." },
   { method: "DELETE", path: "/api/v1/issues/{id}", scope: "write", summary: "Soft-delete an issue. Requires issue:delete." },
   { method: "GET", path: "/api/v1/issues/{id}/comments", scope: "read", summary: "List comments.", detail: "Internal (private) comments are omitted for guest accounts." },
+  { method: "GET", path: "/api/v1/export", scope: "read", summary: "Export issues as CSV or JSON.", detail: "Query: format=csv|json plus the same filters as /api/v1/issues." },
   { method: "POST", path: "/api/v1/issues/{id}/comments", scope: "write", summary: "Add a comment.", detail: "Body: body (required), parentId, isPrivate." },
 ];
 
@@ -118,11 +119,44 @@ export default function ApiDocsPage() {
         </Card>
 
         <Card className="p-4">
+          <p className="mb-2 text-[13.5px] font-semibold">Webhooks</p>
+          <p className="mb-3 text-[12.5px] text-muted">
+            Configure outbound webhooks under <span className="font-medium text-text">Settings → Automation</span>.
+            Each delivery is a POST carrying{" "}
+            <code className="rounded bg-surface-3 px-1 font-mono text-[11.5px]">X-BugTracker-Signature</code>, an
+            HMAC-SHA256 of <code className="rounded bg-surface-3 px-1 font-mono text-[11.5px]">timestamp.body</code>{" "}
+            keyed with the signing secret shown once at creation. Verify it before trusting the payload — and
+            reject old timestamps to prevent replay.
+          </p>
+          <Code>{`// Express receiver
+const crypto = require("crypto");
+
+app.post("/hooks/bugs", express.raw({ type: "application/json" }), (req, res) => {
+  const ts  = req.get("X-BugTracker-Timestamp");
+  const sig = req.get("X-BugTracker-Signature");
+  const expected = "sha256=" + crypto
+    .createHmac("sha256", process.env.WEBHOOK_SECRET)
+    .update(ts + "." + req.body.toString())
+    .digest("hex");
+
+  const ok = sig.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+  if (!ok) return res.sendStatus(401);
+  if (Date.now() - Number(ts) > 5 * 60_000) return res.sendStatus(408); // stale
+
+  const { event, data } = JSON.parse(req.body);
+  console.log(event, data);
+  res.sendStatus(200);
+});`}</Code>
+        </Card>
+
+        <Card className="p-4">
           <p className="mb-2 text-[13.5px] font-semibold">Notes</p>
           <ul className="flex list-disc flex-col gap-1.5 pl-5 text-[12.5px] text-muted">
             <li>Every request is scoped to the token&apos;s organization; ids from other organizations return 404.</li>
             <li>Writes run through the same permission checks and side effects as the web app — activity entries, notifications and realtime events all fire.</li>
             <li>Tokens are shown once at creation. Revoking a token, deactivating the account, or removing the user from the org all invalidate it immediately.</li>
+            <li>Webhook endpoints must be publicly reachable; private and link-local addresses are rejected.</li>
             <li>A GraphQL endpoint is not implemented yet.</li>
           </ul>
         </Card>
