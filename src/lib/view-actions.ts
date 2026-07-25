@@ -50,6 +50,12 @@ export async function saveView(input: {
   const parsed = saveSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
+  // A shared view appears in every member's toolbar, so it is a small content
+  // -injection surface: guests (external accounts) may keep private views only.
+  if (parsed.data.isShared && ctx.orgRole === "guest") {
+    return { ok: false, error: "Guest accounts can only create private views." };
+  }
+
   const count = await prisma.savedSearch.count({ where: { userId: ctx.userId } });
   if (count >= MAX_VIEWS_PER_USER) {
     return { ok: false, error: "You have too many saved views. Delete one first." };
@@ -74,10 +80,13 @@ export async function deleteView(viewId: string) {
   const ctx = await requireAuth();
   const id = z.string().min(1).max(64).parse(viewId);
 
-  // Scoped to the author (admins may tidy up shared views in their own org).
+  // Admins may tidy up SHARED views; nobody may delete someone else's private
+  // view, which would otherwise be a blind destructive action.
   const isAdmin = ctx.orgRole === "owner" || ctx.orgRole === "admin";
   const res = await prisma.savedSearch.deleteMany({
-    where: isAdmin ? { id, orgId: ctx.orgId } : { id, userId: ctx.userId },
+    where: isAdmin
+      ? { id, orgId: ctx.orgId, OR: [{ userId: ctx.userId }, { isShared: true }] }
+      : { id, userId: ctx.userId },
   });
   if (res.count === 0) throw new AuthError("View not found.", "NOT_FOUND");
 

@@ -25,7 +25,7 @@ export function DataTab({ projects }: { projects: SettingsData["projects"] }) {
   const [busy, setBusy] = React.useState(false);
 
   const exportUrl = (format: string) =>
-    `/api/v1/export?format=${format}${projectId ? `&projectId=${projectId}` : ""}`;
+    `/api/export?format=${format}${projectId ? `&projectId=${projectId}` : ""}`;
 
   async function onFile(file: File) {
     setPreview(null);

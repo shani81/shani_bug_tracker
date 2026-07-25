@@ -106,6 +106,19 @@ describe("visibility", () => {
     await prisma.organization.delete({ where: { id: org.id } });
   });
 
+  it("does not let a guest share a view with the workspace", async () => {
+    const res = await actingAs("sana@acme.dev", () =>
+      saveView({ name: "[vitest] guest shared", group: "bug", filter: {}, isShared: true }),
+    );
+    expect(res.ok).toBe(false);
+
+    // ...but a private one is fine
+    const priv = await actingAs("sana@acme.dev", () =>
+      saveView({ name: "[vitest] guest private", group: "bug", filter: {} }),
+    );
+    expect(priv.ok).toBe(true);
+  });
+
   it("lets only the author change sharing", async () => {
     const created = await actingAs("maya@acme.dev", () =>
       saveView({ name: "[vitest] mayas", group: "bug", filter: {} }),
@@ -148,9 +161,21 @@ describe("deleting", () => {
     expect(await prisma.savedSearch.findUnique({ where: { id: created.id } })).not.toBeNull();
   });
 
-  it("allows an org admin to tidy up", async () => {
+  it("does NOT let an admin delete someone else's PRIVATE view", async () => {
     const created = await actingAs("maya@acme.dev", () =>
-      saveView({ name: "[vitest] admin cleanup", group: "bug", filter: {} }),
+      saveView({ name: "[vitest] mayas private", group: "bug", filter: {} }),
+    );
+    if (!created.ok) throw new Error("setup failed");
+
+    await expect(actingAs("you@shani.dev", () => deleteView(created.id))).rejects.toThrow();
+    expect(await prisma.savedSearch.findUnique({ where: { id: created.id } })).not.toBeNull();
+
+    await prisma.savedSearch.delete({ where: { id: created.id } });
+  });
+
+  it("allows an org admin to tidy up a SHARED view", async () => {
+    const created = await actingAs("maya@acme.dev", () =>
+      saveView({ name: "[vitest] admin cleanup", group: "bug", filter: {}, isShared: true }),
     );
     if (!created.ok) throw new Error("setup failed");
 

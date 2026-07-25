@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, destroyAllSessions } from "@/lib/auth";
+import { canResetPassword } from "@/lib/reset-authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Password reset — CONSUMPTION only.
@@ -39,8 +40,27 @@ export async function completePasswordResetAction(
     return { error: "This reset link is no longer valid. Ask an admin for a new one." };
   }
 
+  // Re-authorize NOW, not just at issuance. Roles and memberships can change
+  // inside the validity window: without this, an admin could issue a link for
+  // an ordinary member, wait for them to be promoted to owner, and then
+  // consume it to seize the owner account.
+  const stillAllowed = await canResetPassword({
+    orgId: reset.orgId,
+    issuerId: reset.issuedById,
+    targetId: reset.userId,
+  });
+  if (!stillAllowed.ok) {
+    // burn the link rather than leaving it usable
+    await prisma.passwordReset.updateMany({
+      where: { id: reset.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    return { error: "This reset link is no longer valid. Ask an admin for a new one." };
+  }
+
   const passwordHash = await hashPassword(parsed.data.password);
 
+  let claimedOk = true;
   await prisma.$transaction(async (tx) => {
     // Claim the token first with a conditional write: two concurrent
     // submissions must not both succeed.
@@ -48,7 +68,10 @@ export async function completePasswordResetAction(
       where: { id: reset.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
-    if (claimed.count !== 1) throw new Error("Reset link already used");
+    if (claimed.count !== 1) {
+      claimedOk = false;
+      return;
+    }
 
     await tx.user.update({ where: { id: reset.userId }, data: { passwordHash } });
 
@@ -65,6 +88,12 @@ export async function completePasswordResetAction(
       data: { revokedAt: new Date() },
     });
   });
+
+  // The loser of a concurrent double-submit gets a clean message rather than
+  // an unhandled throw.
+  if (!claimedOk) {
+    return { error: "This reset link is no longer valid. Ask an admin for a new one." };
+  }
 
   // Kill every existing session. Deliberately no auto-login: the person
   // holding the link has not proven they are the account owner beyond

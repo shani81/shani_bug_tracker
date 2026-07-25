@@ -25,14 +25,40 @@ describe("toCsv", () => {
     expect(parsed[1].title).toBe('Comma, quote " and\nnewline');
   });
 
+  /** The written cell, with CSV's surrounding quotes removed if present. */
+  function cellOf(value: string): string {
+    const line = toCsv([{ title: value }]).split("\r\n")[1];
+    return line.startsWith('"') ? line.slice(1) : line;
+  }
+
   it("neutralises spreadsheet formula injection", () => {
     // An issue titled =HYPERLINK(...) must not execute when the export is
     // opened in Excel or Sheets.
-    for (const dangerous of ["=cmd|'/c calc'!A1", "+1+1", "-1+1", "@SUM(A1)"]) {
-      const out = toCsv([{ title: dangerous }]);
-      expect(out, dangerous).toContain("'" + dangerous.replace(/"/g, '""').split(",")[0]);
-      expect(out.split("\r\n")[1].startsWith("=")).toBe(false);
-      expect(out.split("\r\n")[1].startsWith("@")).toBe(false);
+    for (const value of ["=cmd|'/c calc'!A1", "+1+1", "-1+1", "@SUM(A1)"]) {
+      expect(cellOf(value).startsWith("'"), value).toBe(true);
+    }
+  });
+
+  // Regression: the escape was anchored at index 0, so a single leading space
+  // slipped a formula through — and unlike title, descMd is not trimmed on the
+  // write path, so the value survives verbatim into the export.
+  it("neutralises formulas hidden behind leading whitespace", () => {
+    const dangerous = [
+      " =1+1",
+      '  =HYPERLINK("http://evil")',
+      "\t=cmd|'/c calc'!A1",
+      "\n+1+1",
+      " @SUM(A1)",
+      " -1+1",
+    ];
+    for (const value of dangerous) {
+      expect(cellOf(value).startsWith("'"), JSON.stringify(value)).toBe(true);
+    }
+  });
+
+  it("leaves ordinary values alone", () => {
+    for (const value of ["Checkout is broken", "2 + 2 in the title", "user@example.com"]) {
+      expect(cellOf(value).startsWith("'"), value).toBe(false);
     }
   });
 

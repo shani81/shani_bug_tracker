@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
 import { prisma, tokenFor, api, serverIsUp, BASE, cleanupTestArtifacts, actingAs } from "../helpers";
 import { parseCsv } from "@/lib/csv";
 import { previewIssueImport, runIssueImport } from "@/lib/import-actions";
@@ -17,6 +17,13 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await cleanupTestArtifacts();
+});
+
+// The import throttle is process-global and survives between tests.
+beforeEach(async () => {
+  const { clearThrottle } = await import("@/lib/throttle");
+  const owner = await prisma.user.findUnique({ where: { email: "you@shani.dev" } });
+  if (owner) clearThrottle(`import:${owner.id}`);
 });
 
 describe("export", () => {

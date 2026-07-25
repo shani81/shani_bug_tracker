@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requirePermission, ValidationError } from "@/lib/permissions";
+import { requirePermission, ValidationError, AuthError } from "@/lib/permissions";
+import { isThrottled, recordFailure } from "@/lib/throttle";
 import { parseCsv } from "@/lib/csv";
 import { createIssue } from "@/lib/actions";
-import { ISSUE_TYPES, PRIORITIES, SEVERITIES } from "@/lib/constants";
+import { ISSUE_TYPES, PRIORITIES, SEVERITIES, IMPACTS, ENVIRONMENTS } from "@/lib/constants";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CSV issue import.
@@ -17,6 +18,8 @@ import { ISSUE_TYPES, PRIORITIES, SEVERITIES } from "@/lib/constants";
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MAX_ROWS = 500;
+/** Imports allowed per user per throttle window (15 minutes). */
+const MAX_IMPORTS_PER_WINDOW = 25;
 const MAX_BYTES = 2 * 1024 * 1024;
 
 export type ImportRowResult = {
@@ -46,6 +49,8 @@ const KNOWN_COLUMNS = [
 const TYPES = new Set(ISSUE_TYPES.map((t) => t.value));
 const PRIOS = new Set(PRIORITIES.map((p) => p.value));
 const SEVS = new Set(SEVERITIES.map((s) => s.value));
+const IMPS = new Set(IMPACTS.map((i) => i.value));
+const ENVS = new Set(ENVIRONMENTS.map((e) => e.value));
 
 const inputSchema = z.object({
   projectId: z.string().min(1),
@@ -108,6 +113,10 @@ function normalizeRows(raw: Record<string, string>[]): ParsedRow[] {
     else if (!TYPES.has(row.type)) row.error = `Unknown type "${row.type}"`;
     else if (!PRIOS.has(row.priority)) row.error = `Unknown priority "${row.priority}"`;
     else if (!SEVS.has(row.severity)) row.error = `Unknown severity "${row.severity}"`;
+    // impact and environment were previously only lowercased, so an arbitrary
+    // multi-megabyte string could be written straight through to the database
+    else if (!IMPS.has(row.impact)) row.error = `Unknown impact "${row.impact.slice(0, 30)}"`;
+    else if (!ENVS.has(row.environment)) row.error = `Unknown environment "${row.environment.slice(0, 30)}"`;
 
     return row;
   });
@@ -165,7 +174,18 @@ export async function runIssueImport(input: {
     return emptyPreview(parsed.error.issues[0]?.message ?? "Invalid input");
   }
   const { projectId, csv } = parsed.data;
-  await requirePermission("issue:create", { projectId });
+  // Bulk import is a much bigger hammer than filing one issue: require the
+  // project-management capability rather than plain issue:create, so guests
+  // and read-only project roles cannot mass-create.
+  const ctx = await requirePermission("project:manage", { projectId });
+
+  // Each row fans out to notifications and webhook deliveries, so an
+  // unthrottled loop is an amplification primitive.
+  const throttleKey = `import:${ctx.userId}`;
+  if (isThrottled(throttleKey, MAX_IMPORTS_PER_WINDOW)) {
+    return emptyPreview("Too many imports in a short time. Try again in a few minutes.");
+  }
+  recordFailure(throttleKey);
 
   const raw = parseCsv(csv);
   if (raw.length === 0) return emptyPreview("No data rows found.");
@@ -216,11 +236,15 @@ export async function runIssueImport(input: {
       });
       results.push({ row: r.index, title: r.title, ok: true });
     } catch (e) {
+      // Only messages we authored are safe to show: a raw Prisma error would
+      // leak table names, and a connection failure the database host.
+      const safe = e instanceof ValidationError || e instanceof AuthError;
+      if (!safe) console.error("[import] row failed", e);
       results.push({
         row: r.index,
         title: r.title,
         ok: false,
-        message: e instanceof Error ? e.message.slice(0, 160) : "Failed to create",
+        message: safe ? (e as Error).message.slice(0, 160) : "Could not create this issue.",
       });
     }
   }

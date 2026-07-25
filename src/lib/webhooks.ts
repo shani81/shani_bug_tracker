@@ -1,6 +1,7 @@
 import "server-only";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { checkOutboundUrl } from "@/lib/url-safety";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outbound webhooks.
@@ -46,6 +47,9 @@ export function verifySignature(
   body: string,
   signature: string,
 ): boolean {
+  // A receiver with a missing header would otherwise get a TypeError from
+  // Buffer.from rather than a clean `false`.
+  if (typeof signature !== "string" || typeof timestamp !== "string") return false;
   const expected = Buffer.from(signPayload(secret, timestamp, body));
   const actual = Buffer.from(signature);
   if (expected.length !== actual.length) return false;
@@ -98,6 +102,15 @@ async function deliver(
   let statusCode: number | null = null;
   let error: string | null = null;
 
+  // Re-validate on EVERY delivery, not just at creation. Otherwise an admin
+  // could register a public hostname, pass the check once, then repoint its
+  // DNS at an internal address and use the app as a persistent proxy.
+  const checked = await checkOutboundUrl(hook.url);
+  if (!checked.ok) {
+    await recordAttempt(hook, event, body, null, `Blocked: ${checked.error}`, Date.now() - started);
+    return;
+  }
+
   try {
     const res = await fetch(hook.url, {
       method: "POST",
@@ -110,17 +123,34 @@ async function deliver(
         "X-BugTracker-Delivery": randomBytes(8).toString("hex"),
       },
       body,
+      // Do NOT follow redirects: the URL was validated, but a 302 to
+      // 169.254.169.254 would send this signed request to an address the
+      // SSRF guard exists to keep us away from.
+      redirect: "manual",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     statusCode = res.status;
-    if (!res.ok) error = `Receiver responded ${res.status}`;
+    if (res.status >= 300 && res.status < 400) {
+      error = "Receiver redirected; redirects are not followed.";
+    } else if (!res.ok) {
+      error = `Receiver responded ${res.status}`;
+    }
   } catch (e) {
     error = e instanceof Error ? e.message.slice(0, 200) : "Request failed";
   }
 
-  const durationMs = Date.now() - started;
+  await recordAttempt(hook, event, body, statusCode, error, Date.now() - started);
+}
+
+async function recordAttempt(
+  hook: { id: string; failureCount: number },
+  event: string,
+  body: string,
+  statusCode: number | null,
+  error: string | null,
+  durationMs: number,
+) {
   const failed = Boolean(error);
-  const failureCount = failed ? hook.failureCount + 1 : 0;
 
   await Promise.allSettled([
     prisma.webhookDelivery.create({
@@ -139,12 +169,27 @@ async function deliver(
         lastStatus: statusCode,
         lastError: error,
         lastFiredAt: new Date(),
-        failureCount,
-        // Stop hammering an endpoint that has been failing for a long time.
-        ...(failureCount >= FAILURE_LIMIT ? { isEnabled: false } : {}),
+        // `increment` rather than a computed value: concurrent deliveries
+        // reading the same snapshot would otherwise lose updates and keep the
+        // counter permanently below the auto-disable threshold.
+        failureCount: failed ? { increment: 1 } : { set: 0 },
       },
     }),
   ]);
+
+  if (failed) {
+    // Disable only once the persisted counter actually crosses the limit.
+    const fresh = await prisma.webhook.findUnique({
+      where: { id: hook.id },
+      select: { failureCount: true },
+    });
+    if (fresh && fresh.failureCount >= FAILURE_LIMIT) {
+      await prisma.webhook.update({ where: { id: hook.id }, data: { isEnabled: false } }).catch(() => {});
+    }
+  }
+
+  // The dispatch path must prune too, or the log grows forever.
+  await pruneDeliveries(hook.id).catch(() => {});
 }
 
 /** Trim the delivery log so it cannot grow without bound. */

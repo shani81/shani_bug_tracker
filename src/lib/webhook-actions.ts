@@ -131,10 +131,16 @@ export async function testWebhook(webhookId: string): Promise<TestResult> {
         "X-BugTracker-Signature": signPayload(hook.secret, timestamp, body),
       },
       body,
+      // see webhooks.ts — a redirect could point back at a private address
+      redirect: "manual",
       signal: AbortSignal.timeout(5000),
     });
     status = res.status;
-    if (!res.ok) error = `Receiver responded ${res.status}`;
+    if (res.status >= 300 && res.status < 400) {
+      error = "Receiver redirected; redirects are not followed.";
+    } else if (!res.ok) {
+      error = `Receiver responded ${res.status}`;
+    }
   } catch (e) {
     error = e instanceof Error ? e.message.slice(0, 200) : "Request failed";
   }

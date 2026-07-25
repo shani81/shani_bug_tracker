@@ -41,6 +41,14 @@ describe("payload signing", () => {
     }
   });
 
+  it("returns false rather than throwing on non-string input", () => {
+    // A receiver missing the header passes undefined; that must not throw.
+    for (const bad of [undefined, null, 123, {}, []]) {
+      expect(() => verifySignature(secret, ts, body, bad as never)).not.toThrow();
+      expect(verifySignature(secret, ts, body, bad as never)).toBe(false);
+    }
+  });
+
   it("generates distinct, prefixed secrets", () => {
     const secrets = new Set(Array.from({ length: 100 }, generateSecret));
     expect(secrets.size).toBe(100);
@@ -117,6 +125,31 @@ describe("SSRF guard", () => {
   it("refuses malformed input", async () => {
     for (const url of ["", "   ", "not a url", "http://"]) {
       expect((await checkOutboundUrl(url, strict)).ok, url).toBe(false);
+    }
+  });
+
+  // Regression: the URL parser rewrites ::ffff:127.0.0.1 to ::ffff:7f00:1, so
+  // a textual check for the dotted form let a mapped loopback address through.
+  it("blocks obfuscated encodings of private addresses", async () => {
+    const cases: [string, string][] = [
+      ["decimal", "http://2130706433/"],
+      ["octal", "http://0177.0.0.1/"],
+      ["hex octets", "http://0x7f.0.0.1/"],
+      ["trailing dot", "http://127.0.0.1./"],
+      ["ipv4-mapped ipv6", "http://[::ffff:127.0.0.1]/"],
+      ["ipv4-mapped, hex form", "http://[::ffff:7f00:1]/"],
+      ["ipv4-compatible ipv6", "http://[::127.0.0.1]/"],
+      ["expanded loopback", "http://[0:0:0:0:0:0:0:1]/"],
+      ["uppercase host", "http://LOCALHOST/"],
+      ["short form", "http://127.1/"],
+      ["decimal metadata", "http://2852039166/"],
+      ["mapped metadata", "http://[::ffff:169.254.169.254]/"],
+      ["unique local", "http://[fd00::1]/"],
+      ["link local v6", "http://[fe80::1]/"],
+    ];
+    for (const [label, url] of cases) {
+      const res = await checkOutboundUrl(url, strict);
+      expect(res.ok, `${label} (${url}) was allowed`).toBe(false);
     }
   });
 

@@ -138,6 +138,10 @@ model ApiToken {
 model PasswordReset {
   id         String    @id @default(cuid())
   userId     String
+  // The org whose admin issued this. Consumption re-checks authorization
+  // against it, because User.passwordHash is a GLOBAL credential while
+  // authorization is per-organization.
+  orgId      String
   tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword, verifyPassword, destroyAllSessions, createSession } from "@/lib/auth";
 import { requireAuth, requirePermission, AuthError } from "@/lib/permissions";
 import { isThrottled, recordFailure, clearThrottle } from "@/lib/throttle";
+import { canResetPassword } from "@/lib/reset-authz";
 import { getSessionUser } from "@/lib/auth";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,6 +178,8 @@ export async function changeMemberRole(userIdInput: string, roleInput: string) {
       await assertNotLastOwner(tx, ctx.orgId, userId);
     }
     await tx.membership.update({ where: { id: membership.id }, data: { role } });
+    // A pending reset was authorized against the OLD role; void it.
+    await tx.passwordReset.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
   });
 
   revalidatePath("/settings");
@@ -204,6 +207,7 @@ export async function setMemberActive(userIdInput: string, isActiveInput: boolea
     // Flip access to THIS org only. Using User.isActive here would lock the
     // person out of every other workspace they belong to.
     await tx.membership.update({ where: { id: membership.id }, data: { isActive } });
+    await tx.passwordReset.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
   });
 
   // Revoking access must kill live sessions, not just block future logins —
@@ -292,17 +296,9 @@ export async function issuePasswordReset(userIdInput: string): Promise<ResetLink
   const ctx = await requirePermission("member:manage");
   const userId = idSchema.parse(userIdInput);
 
-  const membership = await prisma.membership.findFirst({
-    where: { orgId: ctx.orgId, userId },
-    select: { role: true },
-  });
-  if (!membership) return { ok: false, error: "Member not found." };
-
-  // An admin must not be able to seize an owner's (or another admin's)
-  // account by resetting their password — that would be privilege escalation.
-  if (ctx.orgRole !== "owner" && (membership.role === "owner" || membership.role === "admin")) {
-    return { ok: false, error: "Only an owner can reset that member's password." };
-  }
+  // Shared with the consumption path so both ends agree on who may be reset.
+  const allowed = await canResetPassword({ orgId: ctx.orgId, issuerId: ctx.userId, targetId: userId });
+  if (!allowed.ok) return { ok: false, error: allowed.error };
 
   // supersede any outstanding reset for this user
   await prisma.passwordReset.updateMany({
@@ -314,6 +310,7 @@ export async function issuePasswordReset(userIdInput: string): Promise<ResetLink
   await prisma.passwordReset.create({
     data: {
       userId,
+      orgId: ctx.orgId,
       tokenHash: hashToken(token),
       expiresAt: new Date(Date.now() + RESET_HOURS * 3600_000),
       issuedById: ctx.userId,

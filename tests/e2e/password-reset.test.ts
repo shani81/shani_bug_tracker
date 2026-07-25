@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { prisma, actingAs, sessionFor, getPage, sha256, serverIsUp, tokenFor, api } from "../helpers";
-import { issuePasswordReset } from "@/lib/team-actions";
+import { issuePasswordReset, changeMemberRole } from "@/lib/team-actions";
 import { completePasswordResetAction } from "@/lib/reset-actions";
 import { peekPasswordReset } from "@/lib/reset-queries";
 import { verifyPassword } from "@/lib/auth";
@@ -69,6 +69,68 @@ describe("issuing a reset", () => {
     const res = await actingAs("leo@acme.dev", () => issuePasswordReset(owner!.id)); // leo is admin
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toMatch(/only an owner/i);
+  });
+
+  // CRITICAL regression: User.passwordHash is a GLOBAL credential while
+  // authorization is per-org. Without a cross-org check, an admin of a
+  // low-value workspace could reset the password of someone who owns a
+  // different workspace and then sign in there.
+  it("refuses when the target holds authority in another organization", async () => {
+    const otherOrg = await prisma.organization.create({
+      data: { name: "[vitest] Valuable", slug: "vitest-val-" + Date.now(), logoColor: "#000" },
+    });
+    // maya is a member of Acme AND an owner of the other org
+    await prisma.membership.create({
+      data: { orgId: otherOrg.id, userId: victimId, role: "owner" },
+    });
+
+    const res = await actingAs("leo@acme.dev", () => issuePasswordReset(victimId)); // Acme admin
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/other workspaces/i);
+
+    await prisma.membership.deleteMany({ where: { orgId: otherOrg.id } });
+    await prisma.organization.delete({ where: { id: otherOrg.id } });
+  });
+
+  it("refuses for a member who was deactivated in this org", async () => {
+    await prisma.membership.updateMany({ where: { userId: victimId }, data: { isActive: false } });
+    const res = await actingAs("you@shani.dev", () => issuePasswordReset(victimId));
+    expect(res.ok).toBe(false);
+    await prisma.membership.updateMany({ where: { userId: victimId }, data: { isActive: true } });
+  });
+
+  // TOCTOU: the window between issuing and consuming is 2 hours.
+  it("re-authorizes at consumption, so a promotion voids an issued link", async () => {
+    const issued = await actingAs("leo@acme.dev", () => issuePasswordReset(victimId)); // admin -> member: ok
+    if (!issued.ok) throw new Error("setup failed: " + issued.error);
+    const token = issued.url.split("/reset/")[1];
+
+    // the target is promoted to owner before the link is used
+    await prisma.membership.updateMany({
+      where: { userId: victimId, orgId: { not: undefined } },
+      data: { role: "owner" },
+    });
+
+    const before = await prisma.user.findUnique({ where: { id: victimId } });
+    const res = await completePasswordResetAction({}, form(token, "seized-by-admin"));
+    expect(res.error).toBeTruthy();
+
+    const after = await prisma.user.findUnique({ where: { id: victimId } });
+    expect(after!.passwordHash).toBe(before!.passwordHash);
+
+    await prisma.membership.updateMany({ where: { userId: victimId }, data: { role: "member" } });
+  });
+
+  it("voids an outstanding reset when the member's role changes", async () => {
+    const issued = await actingAs("you@shani.dev", () => issuePasswordReset(victimId));
+    if (!issued.ok) throw new Error("setup failed");
+    const token = issued.url.split("/reset/")[1];
+    expect(await peekPasswordReset(token)).not.toBeNull();
+
+    await actingAs("you@shani.dev", () => changeMemberRole(victimId, "guest"));
+    expect(await peekPasswordReset(token)).toBeNull();
+
+    await actingAs("you@shani.dev", () => changeMemberRole(victimId, "member"));
   });
 
   it("supersedes an earlier outstanding reset", async () => {

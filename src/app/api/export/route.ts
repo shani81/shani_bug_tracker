@@ -1,25 +1,28 @@
 import { NextResponse } from "next/server";
-import { withApiAuth, apiError } from "@/lib/api-response";
+import { getAuthContext } from "@/lib/permissions";
 import { buildExport, csvResponseBody, exportFilename } from "@/lib/export-issues";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * GET /api/v1/export?format=csv|json
+ * GET /api/export — the download links in Settings → Import / Export.
  *
- * Token-authenticated export honouring the same filters as /api/v1/issues.
- * Page with `offset` for more than one batch.
+ * Cookie-authenticated, because a browser <a download> cannot attach a bearer
+ * token. /api/v1/export is the token-authenticated equivalent for API clients.
  */
-export const GET = withApiAuth(async (ctx, req) => {
+export async function GET(req: Request) {
+  const ctx = await getAuthContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Bulk export includes every description plus reporter and assignee email
+  // addresses; guests are external accounts and should not be able to dump it.
   if (ctx.orgRole === "guest") {
-    return apiError("FORBIDDEN", "Bulk export is not available to guest accounts.", 403);
+    return NextResponse.json({ error: "Not permitted" }, { status: 403 });
   }
 
   const url = new URL(req.url);
   const format = (url.searchParams.get("format") ?? "csv").toLowerCase();
-  // clamp UP to 1 and DOWN to 500 — an earlier Math.max discarded the caller's
-  // value entirely and always returned the maximum
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 500) || 500, 1), 500);
   const offset = Math.max(Number(url.searchParams.get("offset") ?? 0) || 0, 0);
 
@@ -40,4 +43,4 @@ export const GET = withApiAuth(async (ctx, req) => {
       "Content-Disposition": `attachment; filename="${exportFilename("csv")}"`,
     },
   });
-});
+}

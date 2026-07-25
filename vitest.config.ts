@@ -4,6 +4,9 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "node",
+    // The e2e webhook suite runs a receiver on 127.0.0.1; the SSRF guard is
+    // fail-closed by default, so tests opt in explicitly.
+    env: { ALLOW_PRIVATE_WEBHOOK_TARGETS: "1" },
     // Suites share one SQLite file and mutate rows, so they must not interleave.
     fileParallelism: false,
     include: ["tests/**/*.test.ts"],

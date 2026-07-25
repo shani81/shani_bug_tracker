@@ -9,15 +9,20 @@ import "server-only";
 /**
  * Escape one field.
  *
- * Values starting with =, +, - or @ are prefixed with a single quote: Excel and
- * Sheets execute those as formulas, so an issue titled `=HYPERLINK(...)` would
+ * Values that begin a formula (=, +, -, @) are prefixed with a single quote:
+ * Excel and Sheets execute those, so an issue titled `=HYPERLINK(...)` would
  * run when a colleague opens the export.
  */
 function escapeField(value: unknown): string {
   if (value === null || value === undefined) return "";
   let s = String(value);
 
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  // Sheets and LibreOffice strip leading whitespace before deciding whether a
+  // cell is a formula, so anchoring at index 0 is not enough: " =HYPERLINK(…)"
+  // would still execute.
+  const startsFormula = /^\s*[=+\-@]/.test(s);
+  const startsControl = /^[\t\r]/.test(s); // can confuse parsers on its own
+  if (startsFormula || startsControl) s = "'" + s;
 
   if (/[",\n\r]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;

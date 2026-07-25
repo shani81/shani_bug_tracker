@@ -220,6 +220,39 @@ describe("delivery", () => {
     await actingAs("you@shani.dev", () => deleteWebhook(hook.id));
   });
 
+  // Regression: fetch follows redirects by default, so a receiver that was
+  // validated as public could 302 the signed request to a private address and
+  // defeat the SSRF guard entirely.
+  it("does not follow redirects", async () => {
+    const redirects: string[] = [];
+    const redirector = createServer((req, res) => {
+      redirects.push(req.url ?? "");
+      res.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" }).end();
+    });
+    await new Promise<void>((r) => redirector.listen(0, "127.0.0.1", r));
+    const rp = (redirector.address() as { port: number }).port;
+
+    const hook = await actingAs("you@shani.dev", () =>
+      createWebhook({
+        name: "[vitest] redirector",
+        url: `http://127.0.0.1:${rp}/hook`,
+        events: ["issue.created"],
+      }),
+    );
+    if (!hook.ok) throw new Error(hook.error);
+
+    await dispatchWebhooks({ orgId, projectId, event: "issue.created", data: {} });
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(redirects.length).toBe(1); // the hop was made
+    const row = await prisma.webhook.findUnique({ where: { id: hook.id } });
+    expect(row!.lastStatus).toBe(302);
+    expect(row!.lastError).toMatch(/redirect/i); // and treated as a failure
+
+    await new Promise<void>((r) => redirector.close(() => r()));
+    await actingAs("you@shani.dev", () => deleteWebhook(hook.id));
+  });
+
   it("survives an unreachable endpoint", async () => {
     const res = await actingAs("you@shani.dev", () =>
       // nothing listening on this port

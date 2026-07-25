@@ -20,14 +20,15 @@ const WINDOW_MS = 15 * 60_000;
 const MAX_ATTEMPTS = 10;
 const MAX_KEYS = 10_000;
 
-export function isThrottled(key: string): boolean {
+/** `max` lets non-credential callers (e.g. bulk import) use their own budget. */
+export function isThrottled(key: string, max: number = MAX_ATTEMPTS): boolean {
   const a = attempts.get(key);
   if (!a) return false;
   if (Date.now() - a.first > WINDOW_MS) {
     attempts.delete(key);
     return false;
   }
-  return a.count >= MAX_ATTEMPTS;
+  return a.count >= max;
 }
 
 export function recordFailure(key: string): void {
