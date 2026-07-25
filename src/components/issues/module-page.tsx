@@ -1,4 +1,4 @@
-import { listIssues } from "@/lib/queries";
+import { listIssues, getSavedViews } from "@/lib/queries";
 import { IssueWorkspace } from "@/components/issues/issue-workspace";
 import { ReportButton } from "@/components/issues/report-button";
 import { PageHeader, PageContainer } from "@/components/page-header";
@@ -19,7 +19,7 @@ export async function ModulePage({
   searchParams?: Promise<{ project?: string; view?: string }>;
 }) {
   const sp = (await searchParams) ?? {};
-  const issues = await listIssues({ group });
+  const [issues, savedViews] = await Promise.all([listIssues({ group }), getSavedViews(group)]);
   const meta = META[group];
   const open = issues.filter((i) => !["done", "canceled"].includes(i.status.category)).length;
 
@@ -36,6 +36,7 @@ export async function ModulePage({
         group={group}
         initialProjectId={sp.project}
         initialView={sp.view === "board" ? "board" : "list"}
+        savedViews={savedViews}
       />
     </PageContainer>
   );

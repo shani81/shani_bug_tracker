@@ -370,3 +370,57 @@ export const getDashboardMetrics = cache(async () => {
     resolved30: days.map((d) => ({ date: d, count: resolvedMap.get(d) ?? 0 })),
   };
 });
+
+// ── Saved views ──────────────────────────────────────────────────────────────
+
+export type SavedViewDTO = {
+  id: string;
+  name: string;
+  group: string;
+  filter: Record<string, string>;
+  isShared: boolean;
+  isMine: boolean;
+  authorName: string;
+};
+
+/**
+ * Views the caller can see for one module: their own, plus anything shared
+ * within their organization.
+ */
+export async function getSavedViews(group: string): Promise<SavedViewDTO[]> {
+  const ctx = await getAuthContext();
+  if (!ctx) return [];
+
+  const rows = await prisma.savedSearch.findMany({
+    where: {
+      orgId: ctx.orgId,
+      group,
+      OR: [{ userId: ctx.userId }, { isShared: true }],
+    },
+    include: { user: { select: { name: true } } },
+    orderBy: [{ isShared: "asc" }, { createdAt: "asc" }],
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    group: r.group,
+    filter: safeParseFilter(r.queryJson),
+    isShared: r.isShared,
+    isMine: r.userId === ctx.userId,
+    authorName: r.user.name,
+  }));
+}
+
+function safeParseFilter(json: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    // keep only string values — the UI puts these straight into URL params
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, v]) => typeof v === "string"),
+    ) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}

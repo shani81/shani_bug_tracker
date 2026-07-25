@@ -24,11 +24,12 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members     Membership[]
-  projects    Project[]
-  users       User[]
-  invitations Invitation[]
-  apiTokens   ApiToken[]
+  members       Membership[]
+  projects      Project[]
+  users         User[]
+  invitations   Invitation[]
+  apiTokens     ApiToken[]
+  savedSearches SavedSearch[]
 }
 
 model User {
@@ -558,16 +559,23 @@ model Notification {
   @@index([isRead])
 }
 
+// A named, reusable filter ("Critical open bugs"). Private to its author
+// unless shared, in which case everyone in the organization sees it.
 model SavedSearch {
   id        String   @id @default(cuid())
   userId    String
+  orgId     String
   name      String
+  group     String   @default("bug") // which module the view belongs to
   queryJson String // serialized filter state
+  isShared  Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([orgId, group])
 }
 
 model AutomationRule {

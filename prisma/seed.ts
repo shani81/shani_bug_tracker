@@ -457,13 +457,34 @@ async function main() {
     });
   }
 
-  // a saved search
-  await prisma.savedSearch.create({
-    data: {
-      userId: me.id,
-      name: "My critical bugs",
-      queryJson: JSON.stringify({ group: "bug", priority: "critical", assigneeId: me.id }),
-    },
+  // saved views — one private, two shared with the whole workspace
+  await prisma.savedSearch.createMany({
+    data: [
+      {
+        userId: me.id,
+        orgId: org.id,
+        name: "My critical bugs",
+        group: "bug",
+        queryJson: JSON.stringify({ priority: "critical", assigneeId: me.id }),
+        isShared: false,
+      },
+      {
+        userId: me.id,
+        orgId: org.id,
+        name: "Critical — all projects",
+        group: "bug",
+        queryJson: JSON.stringify({ priority: "critical", view: "list" }),
+        isShared: true,
+      },
+      {
+        userId: users[1].id,
+        orgId: org.id,
+        name: "Feature backlog",
+        group: "feature",
+        queryJson: JSON.stringify({ view: "board" }),
+        isShared: true,
+      },
+    ],
   });
 
   console.log(`Done. ${users.length} users, ${projectDefs.length} projects, ${totalIssues} issues seeded.`);

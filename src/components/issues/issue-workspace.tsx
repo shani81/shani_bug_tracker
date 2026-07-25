@@ -5,6 +5,8 @@ import { List, Kanban, Search, X } from "lucide-react";
 import { IssueList } from "@/components/issues/issue-list";
 import { KanbanBoard } from "@/components/issues/kanban-board";
 import { useWorkspace } from "@/components/workspace";
+import { SavedViews } from "@/components/issues/saved-views";
+import type { SavedViewDTO } from "@/lib/queries";
 import { PRIORITIES, STATUS_CATEGORIES, type IssueGroup } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { IssueDTO } from "@/lib/types";
@@ -16,11 +18,13 @@ export function IssueWorkspace({
   group,
   initialProjectId,
   initialView = "list",
+  savedViews = [],
 }: {
   issues: IssueDTO[];
   group: IssueGroup;
   initialProjectId?: string;
   initialView?: View;
+  savedViews?: SavedViewDTO[];
 }) {
   const ws = useWorkspace();
   const [view, setView] = React.useState<View>(initialView);
@@ -29,6 +33,32 @@ export function IssueWorkspace({
   const [category, setCategory] = React.useState("");
   const [priority, setPriority] = React.useState("");
   const [assigneeId, setAssigneeId] = React.useState("");
+  const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
+
+  // The current filter, in the shape a saved view stores.
+  const currentFilter = React.useMemo(
+    () => ({
+      ...(projectId ? { projectId } : {}),
+      ...(category ? { statusId: category } : {}),
+      ...(priority ? { priority } : {}),
+      ...(assigneeId ? { assigneeId } : {}),
+      ...(q.trim() ? { search: q.trim() } : {}),
+      view,
+    }),
+    [projectId, category, priority, assigneeId, q, view],
+  );
+
+  /** Apply a saved view, or reset everything when passed null. */
+  const applyView = React.useCallback((v: SavedViewDTO | null) => {
+    setActiveViewId(v?.id ?? null);
+    const f = v?.filter ?? {};
+    setProjectId(f.projectId ?? "");
+    setCategory(f.statusId ?? "");
+    setPriority(f.priority ?? "");
+    setAssigneeId(f.assigneeId ?? "");
+    setQ(f.search ?? "");
+    if (f.view === "board" || f.view === "list") setView(f.view);
+  }, []);
 
   const filtered = React.useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -46,19 +76,27 @@ export function IssueWorkspace({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <SavedViews
+        views={savedViews}
+        group={group}
+        currentFilter={currentFilter}
+        activeViewId={activeViewId}
+        onApply={applyView}
+      />
+
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-40 flex-1 sm:max-w-56">
           <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setActiveViewId(null); }}
             placeholder="Filter…"
             className="input h-8 py-1 pl-8 text-[12.5px]"
           />
         </div>
 
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="input h-8 w-auto py-1 text-[12.5px]">
+        <select value={projectId} onChange={(e) => { setProjectId(e.target.value); setActiveViewId(null); }} className="input h-8 w-auto py-1 text-[12.5px]">
           <option value="">All projects</option>
           {ws.projects.map((p) => (
             <option key={p.id} value={p.id}>
@@ -67,7 +105,7 @@ export function IssueWorkspace({
           ))}
         </select>
 
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="input h-8 w-auto py-1 text-[12.5px]">
+        <select value={category} onChange={(e) => { setCategory(e.target.value); setActiveViewId(null); }} className="input h-8 w-auto py-1 text-[12.5px]">
           <option value="">Any status</option>
           {STATUS_CATEGORIES.map((c) => (
             <option key={c.value} value={c.value}>
@@ -76,7 +114,7 @@ export function IssueWorkspace({
           ))}
         </select>
 
-        <select value={priority} onChange={(e) => setPriority(e.target.value)} className="input h-8 w-auto py-1 text-[12.5px]">
+        <select value={priority} onChange={(e) => { setPriority(e.target.value); setActiveViewId(null); }} className="input h-8 w-auto py-1 text-[12.5px]">
           <option value="">Any priority</option>
           {PRIORITIES.map((p) => (
             <option key={p.value} value={p.value}>
@@ -85,7 +123,7 @@ export function IssueWorkspace({
           ))}
         </select>
 
-        <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className="input hidden h-8 w-auto py-1 text-[12.5px] sm:block">
+        <select value={assigneeId} onChange={(e) => { setAssigneeId(e.target.value); setActiveViewId(null); }} className="input hidden h-8 w-auto py-1 text-[12.5px] sm:block">
           <option value="">Anyone</option>
           {ws.members.map((m) => (
             <option key={m.id} value={m.id}>
