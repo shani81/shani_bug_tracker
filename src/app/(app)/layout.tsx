@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { AppProviders } from "@/components/providers";
+import { AppProviders } from "@/components/app-providers";
 import { AppShell } from "@/components/shell/app-shell";
 import { getWorkspaceData } from "@/lib/workspace";
 import { getAuthContext } from "@/lib/permissions";

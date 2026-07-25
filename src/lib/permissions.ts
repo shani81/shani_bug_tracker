@@ -2,6 +2,8 @@ import "server-only";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
 import { getSessionUser } from "@/lib/auth";
+import { getApiIdentity } from "@/lib/api-auth";
+import { isApiRequest } from "@/lib/request-context";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Capability-based RBAC.
@@ -86,7 +88,22 @@ export type AuthContext = {
   email: string;
   orgId: string;
   orgRole: string;
+  /** how the caller authenticated — a token additionally carries scopes */
+  via: "session" | "token";
+  scopes: readonly string[];
 };
+
+/**
+ * An error whose message is safe to show the caller. The API error handler
+ * echoes only this type — everything else becomes a generic 500 — so internal
+ * failures never leak infrastructure details.
+ */
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
 
 export class AuthError extends Error {
   constructor(
@@ -98,10 +115,40 @@ export class AuthError extends Error {
   }
 }
 
-/** The signed-in user plus their org membership, or null. */
+/**
+ * The caller's identity and org membership, or null.
+ *
+ * Bearer tokens are accepted ONLY on /api/v1 requests (see runAsApiRequest).
+ * Server actions are always cookie-authenticated: a token is not a session, and
+ * accepting one there would turn every action in the app — including team
+ * administration — into a token-reachable endpoint.
+ *
+ * Once resolved, both credential types produce the same shape, so every
+ * downstream permission check is identical.
+ */
 export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
   const user = await getSessionUser();
-  if (!user) return null;
+
+  if (!user) {
+    if (!isApiRequest()) return null;
+    // no cookie, and this is an API request — try an API token
+    const id = await getApiIdentity();
+    if (!id) return null;
+    const u = await prisma.user.findUnique({
+      where: { id: id.userId },
+      select: { name: true, email: true },
+    });
+    if (!u) return null;
+    return {
+      userId: id.userId,
+      name: u.name,
+      email: u.email,
+      orgId: id.orgId,
+      orgRole: id.orgRole,
+      via: "token",
+      scopes: id.scopes,
+    };
+  }
 
   // isActive: an org can revoke someone's access without disabling the account
   // platform-wide, so a deactivated membership yields no context at all.
@@ -117,12 +164,34 @@ export const getAuthContext = cache(async (): Promise<AuthContext | null> => {
     email: user.email,
     orgId: membership.orgId,
     orgRole: membership.role,
+    via: "session",
+    // a cookie session carries the user's full authority
+    scopes: ["read", "write"],
   };
 });
 
+/**
+ * A read-scoped token may not mutate anything, however privileged its owner is.
+ */
+function assertWriteScope(ctx: AuthContext) {
+  if (ctx.via === "token" && !ctx.scopes.includes("write")) {
+    throw new AuthError("This API token is read-only.", "FORBIDDEN");
+  }
+}
+
+/**
+ * Gate for any operation that MUTATES state.
+ *
+ * The write-scope check lives here rather than only in requirePermission
+ * because several actions (marking notifications read, revoking a token,
+ * changing your own password) legitimately need no capability but are still
+ * writes — without this they would be reachable with a read-only token.
+ * Read paths must use getAuthContext() directly, not this.
+ */
 export async function requireAuth(): Promise<AuthContext> {
   const ctx = await getAuthContext();
   if (!ctx) throw new AuthError("You must be signed in.", "UNAUTHENTICATED");
+  assertWriteScope(ctx);
   return ctx;
 }
 

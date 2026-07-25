@@ -1,18 +1,22 @@
 import "server-only";
 import { cache } from "react";
 import { prisma } from "@/lib/prisma";
-import { getSessionUser } from "@/lib/auth";
 import { getAuthContext } from "@/lib/permissions";
 
 /**
- * The signed-in user, or null. Backed by a real session cookie —
- * every data-access path scopes to whatever this returns.
+ * The calling user, or null.
+ *
+ * Resolves through getAuthContext, so this is correct for BOTH a cookie session
+ * and an API token — every query built on it is scoped identically regardless
+ * of how the request authenticated.
  */
 export const getCurrentUser = cache(async () => {
-  return getSessionUser();
+  const ctx = await getAuthContext();
+  if (!ctx) return null;
+  return prisma.user.findUnique({ where: { id: ctx.userId } });
 });
 
-/** The organization the signed-in user belongs to, or null. */
+/** The organization the caller is acting in, or null. */
 export const getActiveOrg = cache(async () => {
   const ctx = await getAuthContext();
   if (!ctx) return null;

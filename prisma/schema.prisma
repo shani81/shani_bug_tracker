@@ -28,6 +28,7 @@ model Organization {
   projects    Project[]
   users       User[]
   invitations Invitation[]
+  apiTokens   ApiToken[]
 }
 
 model User {
@@ -48,6 +49,7 @@ model User {
   sessions Session[]
 
   invitationsSent Invitation[] @relation("InvitationsSent")
+  apiTokens       ApiToken[]
 
   memberships    Membership[]
   projectMembers ProjectMember[]
@@ -101,6 +103,30 @@ model Invitation {
   @@index([orgId])
   @@index([email])
   @@index([expiresAt])
+}
+
+// Personal access token for the public REST API. Like Session and Invitation,
+// only the SHA-256 of the token is stored. `scopes` clamps the capabilities the
+// bearer inherits from the owning user — a read token can never write, even if
+// the user is an owner.
+model ApiToken {
+  id         String    @id @default(cuid())
+  name       String
+  tokenHash  String    @unique
+  prefix     String // first chars, shown in the UI so a token is identifiable
+  scopes     String    @default("read") // comma-separated: read,write
+  userId     String
+  orgId      String
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([orgId])
 }
 
 model Membership {

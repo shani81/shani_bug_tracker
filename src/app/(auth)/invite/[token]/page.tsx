@@ -1,4 +1,4 @@
-import { peekInvitation } from "@/lib/team-actions";
+import { peekInvitation } from "@/lib/invite-queries";
 import { AcceptInviteForm } from "@/components/auth/accept-invite-form";
 import { TriangleAlert } from "lucide-react";
 

@@ -331,6 +331,16 @@ export type SettingsData = {
     isSelf: boolean;
   }[];
   invitations: { id: string; email: string; role: string; invitedBy: string; expiresAt: string }[];
+  /** the CALLER's own API tokens — never anyone else's */
+  apiTokens: {
+    id: string;
+    name: string;
+    prefix: string;
+    scopes: string[];
+    lastUsedAt: string | null;
+    expiresAt: string | null;
+    createdAt: string;
+  }[];
   /** org roles the viewer is allowed to grant — drives the role picker */
   grantableRoles: string[];
   viewerRole: string;
@@ -339,9 +349,9 @@ export type SettingsData = {
 export const getSettings = cache(async (): Promise<SettingsData> => {
   const [org, ctx] = await Promise.all([getActiveOrg(), getAuthContext()]);
   if (!org || !ctx) {
-    return { projects: [], members: [], invitations: [], grantableRoles: [], viewerRole: "" };
+    return { projects: [], members: [], invitations: [], apiTokens: [], grantableRoles: [], viewerRole: "" };
   }
-  const [projects, memberships, invitations] = await Promise.all([
+  const [projects, memberships, invitations, apiTokens] = await Promise.all([
     prisma.project.findMany({
       where: { orgId: org.id },
       include: {
@@ -364,6 +374,10 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
     prisma.invitation.findMany({
       where: { orgId: org.id, acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
       include: { invitedBy: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.apiToken.findMany({
+      where: { userId: ctx.userId, revokedAt: null },
       orderBy: { createdAt: "desc" },
     }),
   ]);
@@ -410,6 +424,15 @@ export const getSettings = cache(async (): Promise<SettingsData> => {
       role: i.role,
       invitedBy: i.invitedBy.name,
       expiresAt: i.expiresAt.toISOString(),
+    })),
+    apiTokens: apiTokens.map((t) => ({
+      id: t.id,
+      name: t.name,
+      prefix: t.prefix,
+      scopes: t.scopes.split(",").filter(Boolean),
+      lastUsedAt: t.lastUsedAt?.toISOString() ?? null,
+      expiresAt: t.expiresAt?.toISOString() ?? null,
+      createdAt: t.createdAt.toISOString(),
     })),
     grantableRoles: grantable,
     viewerRole: ctx.orgRole,

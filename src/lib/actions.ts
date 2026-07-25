@@ -7,6 +7,7 @@ import { logActivity } from "@/lib/activity";
 import { emit } from "@/lib/realtime";
 import { formatKey } from "@/lib/utils";
 import {
+  ValidationError,
   requireAuth,
   requirePermission,
   requireIssueAccess,
@@ -20,6 +21,11 @@ import {
 // requireIssueAccess()/requirePermission() throw AuthError on failure, which
 // surfaces to the client as a rejected server action.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// These actions are public RPC endpoints and TypeScript types are erased at
+// runtime, so a caller can pass a Prisma filter object where a string id is
+// expected. Validate every positional id.
+const idSchema = z.string().min(1).max(64);
 
 function revalidateAll() {
   for (const p of ["/", "/bugs", "/features", "/improvements", "/tasks", "/analytics", "/notifications"]) {
@@ -92,7 +98,7 @@ export async function createIssue(input: CreateIssueInput) {
     const def =
       (await prisma.workflowStatus.findFirst({ where: { projectId: project.id, isDefault: true } })) ??
       (await prisma.workflowStatus.findFirst({ where: { projectId: project.id }, orderBy: { order: "asc" } }));
-    if (!def) throw new Error("Project has no statuses");
+    if (!def) throw new ValidationError("Project has no statuses");
     statusId = def.id;
   }
 
@@ -125,12 +131,27 @@ export async function createIssue(input: CreateIssueInput) {
     : null;
 
   const issue = await prisma.$transaction(async (tx) => {
+    // Atomic increment is the normal path and is race-safe.
     const updated = await tx.project.update({
       where: { id: project.id },
       data: { issueSeq: { increment: 1 } },
       select: { issueSeq: true, key: true },
     });
-    const number = updated.issueSeq;
+    let number = updated.issueSeq;
+
+    // Self-heal a counter that lags behind the rows already present — seeded,
+    // imported or restored data can leave issueSeq behind, which would
+    // otherwise collide on the (projectId, number) unique index forever.
+    const highest = await tx.issue.findFirst({
+      where: { projectId: project.id },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    if (highest && highest.number >= number) {
+      number = highest.number + 1;
+      await tx.project.update({ where: { id: project.id }, data: { issueSeq: number } });
+    }
+
     return tx.issue.create({
       data: {
         projectId: project.id,
@@ -267,8 +288,9 @@ export async function updateIssue(id: string, patch: Record<string, unknown>) {
 
 // ── Change status ────────────────────────────────────────────────────────────
 
-export async function changeStatus(id: string, statusId: string, boardOrder?: number) {
-  const { ctx } = await requireIssueAccess(id, "issue:transition");
+export async function changeStatus(id: string, statusIdInput: string, boardOrder?: number) {
+  const { ctx } = await requireIssueAccess(idSchema.parse(id), "issue:transition");
+  const statusId = idSchema.parse(statusIdInput);
   const existing = await prisma.issue.findUnique({ where: { id }, include: { status: true } });
   if (!existing) throw new AuthError("Issue not found.", "NOT_FOUND");
 
@@ -347,10 +369,11 @@ export async function setLabels(id: string, labelIds: string[]) {
 // ── Comments ─────────────────────────────────────────────────────────────────
 
 export async function addComment(issueId: string, bodyMd: string, parentId?: string, isPrivate = false) {
-  const { ctx } = await requireIssueAccess(issueId, "comment:create");
+  const { ctx } = await requireIssueAccess(idSchema.parse(issueId), "comment:create");
+  if (parentId !== undefined) idSchema.parse(parentId);
   const body = bodyMd.trim();
-  if (!body) throw new Error("Comment cannot be empty");
-  if (body.length > 20_000) throw new Error("Comment is too long");
+  if (!body) throw new ValidationError("Comment cannot be empty");
+  if (body.length > 20_000) throw new ValidationError("Comment is too long");
 
   // "Internal note" is a staff-only affordance; a guest must not be able to
   // author one (they cannot read them either).
@@ -393,7 +416,7 @@ export async function toggleWatch(issueId: string) {
 export async function logTime(issueId: string, minutes: number, note = "") {
   const { ctx } = await requireIssueAccess(issueId, "time:log");
   if (!Number.isFinite(minutes) || minutes <= 0 || minutes > 60 * 24 * 31) {
-    throw new Error("Enter a valid number of minutes");
+    throw new ValidationError("Enter a valid number of minutes");
   }
   await prisma.timeLog.create({
     data: { issueId, userId: ctx.userId, minutes: Math.round(minutes), note: note.slice(0, 500) },
@@ -414,8 +437,9 @@ export async function softDeleteIssue(id: string) {
 
 // ── Notifications (always scoped to the caller) ──────────────────────────────
 
-export async function markNotificationRead(id: string) {
+export async function markNotificationRead(idInput: string) {
   const ctx = await requireAuth();
+  const id = idSchema.parse(idInput);
   // updateMany with the ownership predicate: a foreign id simply matches nothing
   await prisma.notification.updateMany({ where: { id, userId: ctx.userId }, data: { isRead: true } });
   revalidatePath("/notifications");
@@ -431,8 +455,10 @@ export async function markAllNotificationsRead() {
 
 // ── QA ───────────────────────────────────────────────────────────────────────
 
-export async function setTestResultStatus(planId: string, caseId: string, status: string) {
+export async function setTestResultStatus(planIdInput: string, caseIdInput: string, status: string) {
   const ctx = await requireAuth();
+  const planId = idSchema.parse(planIdInput);
+  const caseId = idSchema.parse(caseIdInput);
   const plan = await prisma.testPlan.findFirst({
     where: { id: planId, project: { orgId: ctx.orgId } },
     select: { id: true, projectId: true },
@@ -447,7 +473,7 @@ export async function setTestResultStatus(planId: string, caseId: string, status
   if (!testCase) throw new AuthError("Test case not found.", "NOT_FOUND");
 
   const allowed = ["pass", "fail", "blocked", "retest", "untested"];
-  if (!allowed.includes(status)) throw new Error("Invalid test result status");
+  if (!allowed.includes(status)) throw new ValidationError("Invalid test result status");
 
   let run = await prisma.testRun.findFirst({ where: { planId: plan.id }, orderBy: { startedAt: "desc" } });
   if (!run) run = await prisma.testRun.create({ data: { planId: plan.id, name: "Ad-hoc run", runById: ctx.userId } });
@@ -458,8 +484,9 @@ export async function setTestResultStatus(planId: string, caseId: string, status
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
-export async function toggleAutomation(id: string) {
+export async function toggleAutomation(idInput: string) {
   const ctx = await requireAuth();
+  const id = idSchema.parse(idInput);
   const rule = await prisma.automationRule.findFirst({
     where: { id, project: { orgId: ctx.orgId } },
     select: { id: true, projectId: true, isEnabled: true },
@@ -477,7 +504,7 @@ export async function toggleAutomation(id: string) {
 export async function createRelease(projectId: string, version: string, name: string) {
   await requirePermission("release:manage", { projectId });
   const v = version.trim();
-  if (!v) throw new Error("Version is required");
+  if (!v) throw new ValidationError("Version is required");
   await prisma.release.create({ data: { projectId, version: v.slice(0, 50), name: name.trim().slice(0, 200) } });
   revalidatePath("/releases");
   revalidatePath("/roadmap");
@@ -487,7 +514,7 @@ export async function createRelease(projectId: string, version: string, name: st
 export async function createSprint(projectId: string, name: string, goal: string) {
   await requirePermission("sprint:manage", { projectId });
   const n = name.trim();
-  if (!n) throw new Error("Name is required");
+  if (!n) throw new ValidationError("Name is required");
   await prisma.sprint.create({ data: { projectId, name: n.slice(0, 200), goal: goal.trim().slice(0, 500) } });
   revalidatePath("/sprints");
   return { ok: true };

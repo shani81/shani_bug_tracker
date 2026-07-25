@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { TriangleAlert, UserPlus } from "lucide-react";
 import { Button, Card, Field, Input } from "@/components/ui/primitives";
-import { acceptInvitationAction, type AcceptState } from "@/lib/team-actions";
+import { acceptInvitationAction, type AcceptState } from "@/lib/invite-actions";
 
 function SubmitButton() {
   const { pending } = useFormStatus();

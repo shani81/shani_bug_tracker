@@ -125,15 +125,22 @@ export type IssueFilter = {
   releaseId?: string;
   search?: string;
   includeDone?: boolean;
+  /** pagination — pushed into the query, not applied after fetching */
+  limit?: number;
+  offset?: number;
 };
 
-export async function listIssues(filter: IssueFilter = {}): Promise<IssueDTO[]> {
+/** Total matching rows for a filter, for API pagination metadata. */
+export async function countIssues(filter: IssueFilter = {}): Promise<number> {
   const org = await getActiveOrg();
-  if (!org) return [];
+  if (!org) return 0;
+  return prisma.issue.count({ where: buildIssueWhere(filter, org.id) });
+}
 
+function buildIssueWhere(filter: IssueFilter, orgId: string): Record<string, unknown> {
   const where: Record<string, unknown> = {
     deletedAt: null,
-    project: { orgId: org.id },
+    project: { orgId },
   };
 
   if (filter.group) where.type = { in: typeValuesForGroup(filter.group) };
@@ -148,19 +155,28 @@ export async function listIssues(filter: IssueFilter = {}): Promise<IssueDTO[]> 
   if (filter.assigneeId) where.assignees = { some: { userId: filter.assigneeId } };
   if (filter.labelId) where.labels = { some: { labelId: filter.labelId } };
   if (filter.search) {
-    const q = filter.search;
+    // cap length and neutralise LIKE wildcards — "%" would otherwise match
+    // every row and turn search into a full-table scan
+    const q = filter.search.slice(0, 200).replace(/[%_]/g, "");
     where.OR = [
       { title: { contains: q } },
       { descMd: { contains: q } },
       { key: { contains: q } },
     ];
   }
+  return where;
+}
+
+export async function listIssues(filter: IssueFilter = {}): Promise<IssueDTO[]> {
+  const org = await getActiveOrg();
+  if (!org) return [];
 
   const issues = await prisma.issue.findMany({
-    where,
+    where: buildIssueWhere(filter, org.id),
     include: issueInclude,
     orderBy: [{ updatedAt: "desc" }],
-    take: 500,
+    skip: filter.offset ?? 0,
+    take: Math.min(filter.limit ?? 500, 500),
   });
   return issues.map(serializeIssue);
 }

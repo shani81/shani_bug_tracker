@@ -5,54 +5,14 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword, createSession, destroyCurrentSession, DUMMY_PASSWORD_HASH } from "@/lib/auth";
+// plain server-only helpers — exporting these from a "use server" file would
+// publish the rate limiter as an unauthenticated endpoint
+import { isThrottled, recordFailure, clearThrottle } from "@/lib/throttle";
 
 const credentialsSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
   password: z.string().min(1, "Password is required").max(200),
 });
-
-// ── Naive in-process throttle (per email+ip) ─────────────────────────────────
-// Enough to blunt online brute force in a single-instance deployment. Swap for
-// Redis/a rate-limit service when running multiple instances.
-type Attempt = { count: number; first: number };
-const globalForThrottle = globalThis as unknown as { __loginAttempts?: Map<string, Attempt> };
-const attempts: Map<string, Attempt> = (globalForThrottle.__loginAttempts ??= new Map());
-
-const WINDOW_MS = 15 * 60_000;
-const MAX_ATTEMPTS = 10;
-const MAX_KEYS = 10_000;
-
-/** Shared with other credential-checking endpoints (e.g. password change). */
-export async function checkCredentialThrottle(key: string): Promise<boolean> {
-  return isThrottled(key);
-}
-export async function recordCredentialFailure(key: string): Promise<void> {
-  recordFailure(key);
-}
-export async function clearCredentialThrottle(key: string): Promise<void> {
-  attempts.delete(key);
-}
-
-function isThrottled(key: string): boolean {
-  const a = attempts.get(key);
-  if (!a) return false;
-  if (Date.now() - a.first > WINDOW_MS) {
-    attempts.delete(key);
-    return false;
-  }
-  return a.count >= MAX_ATTEMPTS;
-}
-
-function recordFailure(key: string) {
-  // Bounded sweep so rotating keys cannot grow the map without limit.
-  if (attempts.size > MAX_KEYS) {
-    const cutoff = Date.now() - WINDOW_MS;
-    for (const [k, v] of attempts) if (v.first < cutoff) attempts.delete(k);
-  }
-  const a = attempts.get(key);
-  if (!a || Date.now() - a.first > WINDOW_MS) attempts.set(key, { count: 1, first: Date.now() });
-  else a.count++;
-}
 
 export type SignInState = { error?: string };
 
@@ -100,8 +60,9 @@ export async function signInAction(_prev: SignInState, formData: FormData): Prom
     return { error: "Incorrect email or password." };
   }
 
-  attempts.delete(pairKey);
-  attempts.delete(emailKey);
+  clearThrottle(pairKey);
+  clearThrottle(emailKey);
+  clearThrottle(ipOnlyKey);
   await createSession(user.id, { userAgent: h.get("user-agent") ?? "", ip });
   redirect("/");
 }

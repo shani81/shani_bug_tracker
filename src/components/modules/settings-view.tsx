@@ -23,6 +23,8 @@ import {
   Copy,
   Check,
   TriangleAlert,
+  KeySquare,
+  Plus,
   type LucideIcon,
 } from "lucide-react";
 import { useActionState } from "react";
@@ -38,8 +40,9 @@ import {
   changeOwnPasswordAction,
   type PasswordState,
 } from "@/lib/team-actions";
+import { createApiToken, revokeApiToken } from "@/lib/token-actions";
 import { categoryMeta } from "@/lib/constants";
-import { cn, colorFromString, withAlpha, formatDate } from "@/lib/utils";
+import { cn, colorFromString, withAlpha, formatDate, relativeTime } from "@/lib/utils";
 import type { SettingsData } from "@/lib/module-queries";
 
 type Project = SettingsData["projects"][number];
@@ -161,7 +164,7 @@ export function SettingsView({ data }: { data: SettingsData }) {
             pending={pending}
           />
         )}
-        {tab === "account" && <AccountTab />}
+        {tab === "account" && <AccountTab tokens={data.apiTokens} />}
         {tab === "appearance" && <AppearanceTab />}
       </div>
     </div>
@@ -641,12 +644,13 @@ function InvitePanel({
   );
 }
 
-/** Self-service password change. */
-function AccountTab() {
+/** Self-service password change + personal API tokens. */
+function AccountTab({ tokens }: { tokens: SettingsData["apiTokens"] }) {
   const [state, formAction] = useActionState<PasswordState, FormData>(changeOwnPasswordAction, {});
 
   return (
     <div className="flex flex-col gap-4">
+      <ApiTokensPanel tokens={tokens} />
       <Card className="p-4">
         <div className="mb-3 flex items-center gap-2">
           <KeyRound size={16} className="text-faint" />
@@ -689,6 +693,192 @@ function ChangePasswordButton() {
     <Button type="submit" variant="primary" size="sm" disabled={pending}>
       {pending ? "Updating…" : "Update password"}
     </Button>
+  );
+}
+
+/** Personal API tokens. Shown once on creation, then only by prefix. */
+function ApiTokensPanel({ tokens }: { tokens: SettingsData["apiTokens"] }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [fresh, setFresh] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+
+  async function submit(fd: FormData) {
+    setBusy(true);
+    setError(null);
+    setFresh(null);
+    const scopes = fd.getAll("scopes").map(String);
+    const days = String(fd.get("expiresInDays") ?? "");
+    try {
+      const res = await createApiToken({
+        name: String(fd.get("name") ?? ""),
+        scopes,
+        expiresInDays: days ? Number(days) : null,
+      });
+      if (res.ok) {
+        setFresh(res.token);
+        setOpen(false);
+        router.refresh();
+      } else {
+        setError(res.error);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not create the token.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeApiToken(id);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not revoke the token.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <KeySquare size={16} className="text-faint" />
+        <p className="text-[13.5px] font-semibold">API tokens</p>
+        <span className="text-[12px] text-faint">{tokens.length}</span>
+        {!open && (
+          <Button size="sm" variant="secondary" className="ml-auto" onClick={() => setOpen(true)}>
+            <Plus size={14} /> New token
+          </Button>
+        )}
+      </div>
+      <p className="mb-3 text-[12.5px] text-muted">
+        Authenticate against the REST API with <code className="rounded bg-surface-3 px-1 font-mono text-[11.5px]">Authorization: Bearer …</code>.
+        A token acts as you, limited by its scopes. See the{" "}
+        <a href="/docs/api" className="text-primary hover:underline">
+          API reference
+        </a>
+        .
+      </p>
+
+      {fresh && (
+        <div className="mb-3 rounded-lg border border-dashed border-success/40 bg-success/5 p-3">
+          <p className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-success">
+            <Check size={13} /> Token created — copy it now. You won&apos;t be able to see it again.
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded bg-surface-3 px-2 py-1.5 font-mono text-[11.5px]">
+              {fresh}
+            </code>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(fresh);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1800);
+                } catch {
+                  /* clipboard blocked — the value is selectable */
+                }
+              }}
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {open && (
+        <form action={submit} className="mb-3 grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-2">
+          <Field label="Name" required>
+            <Input name="name" required placeholder="CI pipeline" />
+          </Field>
+          <Field label="Expires" hint="Optional">
+            <Select name="expiresInDays" defaultValue="90">
+              <option value="">Never</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+            </Select>
+          </Field>
+          <div className="sm:col-span-2">
+            <p className="mb-1.5 text-[12px] font-medium text-muted">Scopes</p>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" name="scopes" value="read" defaultChecked className="accent-[var(--primary)]" />
+                read <span className="text-faint">— list and fetch</span>
+              </label>
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" name="scopes" value="write" className="accent-[var(--primary)]" />
+                write <span className="text-faint">— create, update, delete</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex gap-2 sm:col-span-2">
+            <Button type="submit" variant="primary" size="sm" disabled={busy}>
+              {busy ? "Creating…" : "Create token"}
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {error && (
+        <p role="alert" className="mb-3 flex items-center gap-2 rounded-lg bg-danger/10 px-3 py-2 text-[12.5px] text-danger">
+          <TriangleAlert size={14} /> {error}
+        </p>
+      )}
+
+      {tokens.length === 0 ? (
+        <p className="rounded-lg bg-surface-2/50 px-3 py-4 text-center text-[12.5px] text-muted">
+          No API tokens yet.
+        </p>
+      ) : (
+        <div className="divide-y divide-border rounded-lg border border-border">
+          {tokens.map((t) => {
+            const expired = t.expiresAt && new Date(t.expiresAt).getTime() < Date.now();
+            return (
+              <div key={t.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1 basis-40">
+                  <div className="flex items-baseline gap-2">
+                    <p className="truncate text-[13px] font-medium">{t.name}</p>
+                    {expired && (
+                      <span className="shrink-0 rounded bg-surface-3 px-1.5 text-[10.5px] text-muted">Expired</span>
+                    )}
+                  </div>
+                  <p className="truncate font-mono text-[11.5px] text-faint">{t.prefix}…</p>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  {t.scopes.map((s) => (
+                    <Badge key={s} color={s === "write" ? "#d97706" : "#0891b2"}>
+                      {s}
+                    </Badge>
+                  ))}
+                </div>
+                <span className="shrink-0 text-[11.5px] text-faint">
+                  {t.lastUsedAt ? `used ${relativeTime(t.lastUsedAt)}` : "never used"}
+                </span>
+                <button
+                  onClick={() => revoke(t.id)}
+                  disabled={busy}
+                  className="shrink-0 rounded-lg px-2 py-1 text-[12px] text-muted hover:bg-surface-2 hover:text-danger disabled:opacity-50"
+                >
+                  Revoke
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }
 

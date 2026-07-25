@@ -420,6 +420,19 @@ async function main() {
         runCount: randInt(1, 15),
       },
     });
+
+    // Advance the per-project issue counter past the rows just created.
+    // Leaving it at 0 makes the very next createIssue() collide on the
+    // (projectId, number) unique index.
+    const highest = await prisma.issue.findFirst({
+      where: { projectId: project.id },
+      orderBy: { number: "desc" },
+      select: { number: true },
+    });
+    await prisma.project.update({
+      where: { id: project.id },
+      data: { issueSeq: highest?.number ?? 0 },
+    });
   }
 
   // notifications for the current user
