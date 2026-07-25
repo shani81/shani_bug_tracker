@@ -201,7 +201,7 @@
   <div class="top-row">
     <div class="title-block">
       <h1>Enterprise Bug Tracker — Project Overview</h1>
-      <p>Live build progress · repo: shani81/shani_bug_tracker · updated 2026-07-25 — foundation, 12 core modules, auth + RBAC, team management, REST API, import/export, saved views, webhooks and a 145-test suite</p>
+      <p>Live build progress · repo: shani81/shani_bug_tracker · updated 2026-07-25 — foundation, 12 core modules, auth + RBAC, team management, REST + GraphQL APIs, import/export, saved views, webhooks, an installable Android PWA and a 178-test suite</p>
     </div>
     <button class="theme-btn" id="themeToggle" type="button">🌓 <span id="themeLabel">Theme</span></button>
   </div>
@@ -491,8 +491,8 @@
     'listview-1': 'doing', 'listview-2': 'done',
     // Timeline
     'timeline-0': 'done', 'timeline-1': 'doing', 'timeline-2': 'done',
-    // Releases
-    'release-0': 'doing', 'release-1': 'doing', 'release-2': 'done', 'release-3': 'doing',
+    // Releases + sprints are now manageable, not just viewable
+    'release-0': 'done', 'release-1': 'doing', 'release-2': 'done', 'release-3': 'done',
     // QA
     'qa-0': 'done', 'qa-1': 'done', 'qa-2': 'done', 'qa-3': 'done',
     // Analytics
@@ -504,7 +504,7 @@
     // Security — auth + RBAC enforced server-side; invites, roles, deactivation
     'security-0': 'done', 'security-1': 'done', 'security-3': 'doing', 'security-4': 'doing',
     // Public REST API v1 with scoped personal access tokens
-    'api-0': 'done', 'api-1': 'done', 'api-3': 'doing',
+    'api-0': 'done', 'api-1': 'done', 'api-2': 'done', 'api-3': 'doing',
     // Import / export (CSV + JSON) with dry-run preview
     'exports-0': 'done', 'exports-1': 'done', 'exports-2': 'doing',
     'imports-0': 'done', 'imports-1': 'doing',
@@ -512,10 +512,12 @@
     'integrations-0': 'done',
     // Saved views
     'search-1': 'done',
-    // Admin panel — team/user/role management now functional
-    'admin-0': 'done', 'admin-1': 'doing', 'admin-3': 'doing',
+    // Admin panel — team, roles, statuses, labels, components, automation
+    'admin-0': 'done', 'admin-1': 'done', 'admin-3': 'done',
     // UX
-    'ux-0': 'doing', 'ux-1': 'done',
+    'ux-0': 'done', 'ux-1': 'done', 'ux-2': 'doing',
+    // Installable Android PWA (offline shell, home-screen icon, shortcuts)
+    'native-0': 'done', 'native-1': 'doing',
     // Database
     'database-0': 'done', 'database-1': 'done', 'database-2': 'done', 'database-3': 'done',
     // Performance

@@ -119,6 +119,25 @@ export default function ApiDocsPage() {
         </Card>
 
         <Card className="p-4">
+          <p className="mb-2 text-[13.5px] font-semibold">GraphQL</p>
+          <p className="mb-3 text-[12.5px] text-muted">
+            <code className="rounded bg-surface-3 px-1 font-mono text-[11.5px]">POST /api/graphql</code> with the
+            same bearer token. Resolvers call the same queries and actions as REST, so authorization, org
+            scoping and side effects are identical — including the read/write scope clamp.{" "}
+            <code className="rounded bg-surface-3 px-1 font-mono text-[11.5px]">GET /api/graphql</code> returns
+            the schema (SDL).
+          </p>
+          <Code>{`curl -X POST https://your-host/api/graphql \
+  -H "Authorization: Bearer bt_your_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ issues(filter:{group:\\"bug\\",limit:5}) { nodes { key title priority } total } }"}'`}</Code>
+          <p className="mt-3 text-[12px] text-faint">
+            Queries: me, projects, issues(filter), issue(id). Mutations: createIssue, updateIssue,
+            changeStatus, setAssignees, setLabels, addComment, deleteIssue.
+          </p>
+        </Card>
+
+        <Card className="p-4">
           <p className="mb-2 text-[13.5px] font-semibold">Webhooks</p>
           <p className="mb-3 text-[12.5px] text-muted">
             Configure outbound webhooks under <span className="font-medium text-text">Settings → Automation</span>.
@@ -157,7 +176,7 @@ app.post("/hooks/bugs", express.raw({ type: "application/json" }), (req, res) =>
             <li>Writes run through the same permission checks and side effects as the web app — activity entries, notifications and realtime events all fire.</li>
             <li>Tokens are shown once at creation. Revoking a token, deactivating the account, or removing the user from the org all invalidate it immediately.</li>
             <li>Webhook endpoints must be publicly reachable; private and link-local addresses are rejected.</li>
-            <li>A GraphQL endpoint is not implemented yet.</li>
+            <li>Queries are capped at 10,000 characters and 12 levels of nesting.</li>
           </ul>
         </Card>
       </div>
